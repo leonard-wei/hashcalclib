@@ -50,7 +50,7 @@ Note:
       `addSrcDirs()`.
 """
 
-__version__ = '1.6.0'
+__version__ = '1.6.1'
 
 import codecs
 import fnmatch
@@ -1156,7 +1156,7 @@ class HashCalculator(object):
             affirm(\
                 isinstance(string, basestring), \
                 self._usage(12, arg='srcStrings', value=self._str(srcStrings)))
-            srcStrsTmp.append(self._unicode(string))
+            srcStrsTmp.append(self._str(self._unicode(string)))
         if srcStrsTmp:
             srcStrsTmp.sort()
             self._srcStrings.append((None, srcStrsTmp))
@@ -1751,6 +1751,8 @@ class FileInfoUsage(UsageHandler):
                  % (HR, 'OK', '%(ok)6d', 'Found', '%(found)6d', 'Total', \
                     '%(total)6d', '!Size', '%(notsize)6d', \
                     '!Found', '%(notfound)6d', HR),
+            541: '*%(comment)s',
+            542: 'Invalid line format: "%s"',
             551: '*WARNING* "%s" already exists. Append, Overwrite '\
                  'or Quit(a/o/Q)? ',
         }
@@ -2011,11 +2013,13 @@ class FileInfo(object):
         fileInfos = []
         while dirs:
             currentDir = dirs.pop(0)
+            listDirError = None
             try:
                 items = os.listdir(currentDir)
             except OSError as oe:
-                self._print(self._usage(2, getExceptionMsg(oe)))
-                continue
+                listDirError = getExceptionMsg(oe)
+                self._print(self._usage(2, listDirError))
+                items = []
             items.sort()
 
             fileInfos.append(\
@@ -2042,6 +2046,10 @@ class FileInfo(object):
             subdirs[:] = []
             for fileInfo in fileInfos:
                 self._print(self._usage(531, **fileInfo), tmpFile)
+            if listDirError:
+                self._print(self._usage(541, \
+                            comment=self._unicode(listDirError)), tmpFile)
+                listDirError = None
             self._print(self._usage(532), tmpFile)
             fileInfos[:] = []
         self._print(self._getDiskUsage(dir_), tmpFile)
@@ -2070,7 +2078,8 @@ class FileInfo(object):
         summary = self._summary
 
         with open(filePath, 'rb') as file_:
-            root = self._unicode(file_.readline()).rstrip(os.linesep)
+            root = self._unicode(\
+                file_.readline()).rstrip(os.linesep).strip('\x20\t')
             affirm(os.path.isabs(root), self._usage(505))
             self._print(self._usage(539, filePath), tmpFile)
             dir_ = ''
@@ -2079,7 +2088,13 @@ class FileInfo(object):
                 if line.startswith(self._commentChar):
                     continue
 
-                items = line.rstrip(os.linesep).split('\t')
+                line = line.rstrip(os.linesep).strip('\x20\t')
+                items = line.split('\t')
+                # To make sure the format of a line is correct, the count
+                # of `items` must be 4.
+                if len(items) != 4:
+                    self._print(self._usage(542, line), tmpFile)
+                    continue
                 # Use dir attributes instead of os.path.isdir() to determine
                 # whether the path is a dir or not to prevent an issue that
                 # a file with the same name as its directory.

@@ -2,8 +2,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 # python version: 2.7.5 final, serial: 0
 
-__version__ = '1.6.0'
-
 import argparse
 import os
 import signal
@@ -11,9 +9,11 @@ import sys
 import traceback
 import warnings
 
-from hashcalclib import FileInfo, Error
-from commonutil import joinExceptionArgs, getExceptionMsg, makeStackTraceDict, \
-                       str_, UsageHandler, CharCatcher, formatText
+from hashcalclib import __version__, __author__, __date__
+from hashcalclib.hashcalclib import FileInfo, Error
+from hashcalclib.commonutil import joinExceptionArgs, getExceptionMsg, \
+                                   makeStackTraceDict, str_, UsageHandler, \
+                                   CharCatcher, formatText
 
 
 class CmdlineUsage(UsageHandler):
@@ -22,8 +22,7 @@ class CmdlineUsage(UsageHandler):
     def __init__(self):
         super(CmdlineUsage, self).__init__()
         messages = {
-            701: '%(program)s - 1.6.0 (Python 2.7.5 final) '\
-                 'by Leonard Wei <gooxxgle.mail@gmail.com>, DEC 12 2014.',
+            701: '%(program)s - %(version)s by %(author)s, %(date)s.',
             702: 'List or check the information of files.',
             703: '"l" or "list" means listing the information of files. '\
                  '"c" or "check" means checking the information of files.',
@@ -46,6 +45,9 @@ class CmdlineUsage(UsageHandler):
                  'is required.',
             714: 'usage:\n\tWhen ACTION is "check", the "-f" option '\
                  'is required.',
+            715: 'The encoding that would be used to decode the path or '\
+                 'content of a file. Default will try to use the following '\
+                 'encoding in sequence: "utf-8", "utf-16", "ascii", "cp950".',
             731: 'Press Any Key to Continue...',
             732: '"%s" is a directory or the user has no write privilege.',
             733: '"%s" already exists and the user has no write privilege.',
@@ -96,6 +98,8 @@ def parseCmdArgs(usage):
                         action='store_true', help=usage(707))
     parser.add_argument('-X', '--exclude', dest='exclusiveDirs', \
                         action='append', metavar='DIR', help=usage(708))
+    parser.add_argument('-e', '--encoding', dest='encoding', \
+                        metavar='ENCODING', help=usage(715))
     parser.add_argument('-S', '--silent', dest='isSilent', \
                         action='store_true', help=usage(709))
     parser.add_argument('-t', '--tee', dest='isTee', \
@@ -104,7 +108,9 @@ def parseCmdArgs(usage):
                         action='store_true', help=usage(711))
     parser.add_argument('-h', '--help', action='help', help=usage(712))
     parser.add_argument('-V', '--version', action='version', \
-                        version=usage(701, program=program))
+                        version=usage(701, program=program, \
+                                      version=__version__, author=__author__, \
+                                      date=__date__))
 
     return parser.parse_args()
 # end of parseCmdArgs
@@ -139,12 +145,13 @@ def _main():
         if args.action == 'l':
             assert args.dir_, usage(713)
             fileInfoObj = FileInfo(args.isRecursive, args.isSilent, \
-                                   args.exclusiveDirs)
+                                   args.exclusiveDirs, encoding=args.encoding)
             fileInfoObj.getFileInfo(args.dir_)
         else:
             assert args.filePath, usage(714)
             fileInfoObj = FileInfo(isSilent=args.isSilent, \
-                                   isVerbose=args.isVerbose)
+                                   isVerbose=args.isVerbose, \
+                                   encoding=args.encoding)
             fileInfoObj.checkFileInfo(args.filePath)
 
         if args.outputPath:

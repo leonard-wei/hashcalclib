@@ -2,8 +2,6 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 # python version: 2.7.5 final, serial: 0
 
-__version__ = '1.6.0'
-
 import argparse
 import os
 import signal
@@ -11,9 +9,11 @@ import sys
 import traceback
 import warnings
 
-from hashcalclib import HashCalculator, Error
-from commonutil import joinExceptionArgs, getExceptionMsg, makeStackTraceDict, \
-                       str_, UsageHandler, CharCatcher, formatText
+from hashcalclib import __version__, __author__, __date__
+from hashcalclib.hashcalclib import HashCalculator, Error
+from hashcalclib.commonutil import joinExceptionArgs, getExceptionMsg, \
+                                   makeStackTraceDict, str_, UsageHandler, \
+                                   CharCatcher, formatText
 
 
 class CmdlineUsage(UsageHandler):
@@ -22,8 +22,7 @@ class CmdlineUsage(UsageHandler):
     def __init__(self):
         super(CmdlineUsage, self).__init__()
         messages = {
-            101: '%(program)s - 1.6.0 (Python 2.7.5 final) '\
-                 'by Leonard Wei <gooxxgle.mail@gmail.com>, DEC 12 2014.',
+            101: '%(program)s - %(version)s by %(author)s, %(date)s.',
             102: 'The path of the file that contains the hash info '\
                  'could be verified or which the calculated hash info will '\
                  'be saved to. If ACTION is "v", this argument is a '\
@@ -144,6 +143,8 @@ class CmdlineUsage(UsageHandler):
             134: 'Do not write anything to console.',
             135: '*WARNING* "%s" already exists. Append, Overwrite '\
                  'or Quit(a/o/Q)? ',
+            136: 'Specify the directories that should be excluded("-r" '\
+                 'option is given). This option could be used multiple times.',
             191: '%(program)s c -a crc32 -a md5 -u -f file1 -d dir1 -r'\
                  ' -o file2 -t',
             192: 'Calculate the hash of "file1" and all files under '\
@@ -232,6 +233,8 @@ def parseCmdArgs(usage):
                         dest='unixFileFilterPattern', help=usage(128))
     parser.add_argument('-R', '--regex-file-filter', metavar='PATTERN', \
                         dest='regexFileFilterPattern', help=usage(129))
+    parser.add_argument('-X', '--exclude', dest='exclusiveDirs', \
+                        action='append', metavar='DIR', help=usage(136))
     parser.add_argument('-S', '--silent', dest='isSilent', \
                         action='store_true', help=usage(134))
     parser.add_argument('-t', '--tee', dest='isTee', \
@@ -240,7 +243,9 @@ def parseCmdArgs(usage):
                         action='store_true', help=usage(124))
     parser.add_argument('-h', '--help', action='help', help=usage(132))
     parser.add_argument('-V', '--version', action='version', \
-                        version=usage(101, program=program))
+                        version=usage(101, program=program, \
+                                      version=__version__, author=__author__, \
+                                      date=__date__))
 
     return parser.parse_args()
 # end of parseCmdArgs
