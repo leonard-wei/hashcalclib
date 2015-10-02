@@ -2,6 +2,7 @@
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 # python version: 2.7.5 final, serial: 0
 
+import codecs
 import os
 import sys
 import wxversion
@@ -13,7 +14,8 @@ from contextlib import closing
 from hashcalclib import __version__, __author__, __date__, __copyright__, \
                         __email__
 from hashcalclib.hashcalclib import _isPyblake2Imported, _isSha3Imported, \
-                                    HashCalculator, affirm, unicode_
+                                    HashCalculator, affirm, unicode_, str_, \
+                                    Error as hashcalclibError
 from hashcalclib.commonutil import UsageHandler, Enum, getExceptionMsg
 from tempfile import SpooledTemporaryFile as SpooledTmpFile
 from wx.lib.filebrowsebutton import DirBrowseButton
@@ -82,7 +84,7 @@ class HashCalculatorGUIUsage(UsageHandler):
                  '%s'\
                  % (self.program, __version__, __date__, \
                     sys.version.split()[0], wx.VERSION_STRING, \
-                    __author__.split()[0], __email__, self.mailSubject, \
+                    __author__, __email__, self.mailSubject, \
                     __email__, __copyright__),
             611: 'Files/Dirs Dropped',
             612: 'Text Dropped',
@@ -112,16 +114,23 @@ class HashCalculatorGUIUsage(UsageHandler):
             628: 'Browse',
             629: 'Send event fail!',
             630: 'Select the hash type.',
-            699: wx.EmptyString,
             631: 'All output cleared.',
-            801: 'Add &Files\tF2',
-            802: 'Add &Directory\tF3',
+            632: 'Results Saved.',
+            633: 'Verify Files',
+            634: 'Files Loaded',
+            635: 'Save Results',
+            636: 'Input files or text are invalid!',
+            637: 'Invalid hash file or extension name '\
+                 '(try to select one hash type)!',
+            699: wx.EmptyString,
+            801: 'Add Files(&F)\tF2',
+            802: 'Add Directory(&D)\tF3',
             803: 'Add Files Recursively(&R)',
-            804: '&Clear All Output\tCtrl+X',
-            805: '&Exit\tCtrl+F4',
+            804: 'Clear All Output(&C)\tCtrl+X',
+            805: 'Exit(&E)\tCtrl+F4',
             806: 'File(&F)',
-            807: '&Copy Selected Items\tCtrl+C',
-            808: 'Copy &All Items\tShift+C',
+            807: 'Copy Selected Items(&C)\tCtrl+C',
+            808: 'Copy All Items(&A)\tShift+C',
             809: 'Edit(&E)',
             810: 'Select All(&A)',
             811: 'Deselect All(&D)',
@@ -147,8 +156,12 @@ class HashCalculatorGUIUsage(UsageHandler):
             831: 'Option(&O)',
             832: 'About(&A)',
             833: 'Help(&H)',
-            834: '&Paste Items\tCtrl+V',
+            834: 'Paste Items(&P)\tCtrl+V',
             835: 'Show Summary(&S)',
+            836: 'Save Results(&S)\tCtrl+S',
+            837: 'Verify Files(&V)\tF4',
+            838: 'Check Existence Only(&X)',
+            839: 'Show Hash Type Sequences(&E)',
         }
         self.MESSAGES.update(messages)
     # end of __init__
@@ -192,9 +205,9 @@ class HashCalculatorMainFrame(wx.Frame):
     _mainMenuEnum = Enum(('FILE', 'EDIT', 'OPTION', 'HELP', 'MAIN'))
     _mainMenuItems = None
     _fileMenuEnum = Enum(('INDEX', 'ADDFILES', 'ADDDIR', 'RECURSIVE', \
-                          'CLEAR', 'EXIT'))
+                          'VERIFY', 'EXISTENCEONLY', 'SAVE', 'CLEAR', 'EXIT'))
     _editMenuEnum = Enum(('INDEX', 'COPYSELECTED', 'COPYALL', 'PASTE'))
-    _optionMenuEnum = Enum(('INDEX', 'HASHTYPE', 'UPPERCASE', \
+    _optionMenuEnum = Enum(('INDEX', 'HASHTYPE', 'SHOWHASHTYPE', 'UPPERCASE', \
                             'NEWOUTPUTMODE', 'SUMMARY', 'OPTION'))
     _hashTypeMenuEnum = Enum(\
         ('INDEX', 'SELECTALL', 'DESELECTALL', 'CRC32', 'MD5', 'SHA1', \
@@ -213,7 +226,12 @@ class HashCalculatorMainFrame(wx.Frame):
     _closeFrame = None
     _hasSummary = False
 
-    def _loadConfig(self):
+    def _loadConfig(self, encoding='utf-8'):
+        """
+        @return True if it loaded the config successfully. False if it may
+                need trying another encoding to load the config. None if it
+                failed to load the config.
+        """
         menuEnum = self._hashTypeMenuEnum
         self._config = {
             'Position': (100, 100),
@@ -221,6 +239,7 @@ class HashCalculatorMainFrame(wx.Frame):
             'LastDirectory': os.getcwdu(),
             'HashType': [menuEnum.CRC32],
             'Recursive': False,
+            'ExistenceOnly': False,
             'Uppercase': True,
             'NewOutputMode': False,
             'Summary': False,
@@ -231,8 +250,12 @@ class HashCalculatorMainFrame(wx.Frame):
 
         # Make option case sensitive.
         configParser.optionxform = str
-        if not configParser.read(self._configPath):
-            return
+        try:
+            # Try to use the correct encoding to load the config
+            configParser.readfp(codecs.open(self._configPath, 'r', encoding))
+        except StandardError as exc:
+            print str_(getExceptionMsg(exc))
+            return None if issubclass(type(exc), UnicodeError) else False
 
         # General Section
         section = 'General'
@@ -247,12 +270,21 @@ class HashCalculatorMainFrame(wx.Frame):
             config['HashType'][:] = list(int(x) for x in value.split(',')) \
                                     if value else []
             config['Recursive'] = configParser.getboolean(section, 'Recursive')
+            config['ExistenceOnly'] = configParser.getboolean(\
+                section, 'ExistenceOnly')
             config['Uppercase'] = configParser.getboolean(section, 'Uppercase')
             config['NewOutputMode'] = configParser.getboolean(section, \
                                                               'NewOutputMode')
             config['Summary'] = configParser.getboolean(section, 'Summary')
         except (StandardError, ConfigParser.Error) as exc:
-            print getExceptionMsg(exc)
+            print str_(getExceptionMsg(exc))
+            return False
+
+        # Check if it needs trying another encoding to load the config.
+        if not os.access(config['LastDirectory'], os.F_OK):
+            return None
+
+        return True
     # end of _loadConfig
 
     def _saveConfig(self):
@@ -270,9 +302,9 @@ class HashCalculatorMainFrame(wx.Frame):
         config['Size'] = tuple(self.GetSize())
         for key, value in config.items():
             if isinstance(value, (tuple, list)):
-                value = ','.join(str(x) for x in value)
+                value = ','.join(str_(x) for x in value)
             else:
-                value = str(value)
+                value = str_(value)
             configParser.set(section, key, value)
         with open(self._configPath, 'wb') as file_:
             configParser.write(file_)
@@ -349,6 +381,12 @@ class HashCalculatorMainFrame(wx.Frame):
              ('', 'ADDDIR', 802, 699, self._addDir, None), \
              ('CheckItem', 'RECURSIVE', 803, 699, \
               self._setFileMenuOption, None), \
+             ('Separator', '', 0, 0, None, None), \
+             ('', 'VERIFY', 837, 699, self._verifyFiles, None), \
+             ('CheckItem', 'EXISTENCEONLY', 838, 699, \
+              self._setFileMenuOption, None), \
+             ('Separator', '', 0, 0, None, None), \
+             ('', 'SAVE', 836, 699, self._saveResults, None), \
              ('', 'CLEAR', 804, 699, self._clearOutput, None), \
              ('Separator', '', 0, 0, None, None), \
              ('', 'EXIT', 805, 699, self._closeFrame, None)), \
@@ -371,8 +409,7 @@ class HashCalculatorMainFrame(wx.Frame):
         # Menu: Option
         # SubMenu: Hash Type
         menuEnum = self._hashTypeMenuEnum
-        subMenuItems = []
-        subMenuItems.append([dict()])
+        subMenuItems = [[dict()]]
         hashTypeMenu = wx.Menu()
         self._createMenuItems(\
             (('', 'SELECTALL', 810, 699, self._selectAllHashType, None),
@@ -404,6 +441,7 @@ class HashCalculatorMainFrame(wx.Frame):
         optionMenu = wx.Menu()
         self._createMenuItems(\
             (('Menu', 'HASHTYPE', 828, 630, None, hashTypeMenu),
+             ('', 'SHOWHASHTYPE', 839, 699, self._showHashType, None), \
              ('CheckItem', 'UPPERCASE', 829, 699, \
               self._setOptionMenuOption, None),
              ('CheckItem', 'NEWOUTPUTMODE', 830, 699, \
@@ -455,6 +493,13 @@ class HashCalculatorMainFrame(wx.Frame):
             menuItem.Check(True)
             sendEvent(wx.wxEVT_COMMAND_MENU_SELECTED, menuItem.Id, \
                       mainMenus[mainMenuEnum.FILE], eventHandler)
+        if config['ExistenceOnly']:
+            menuItem = menuItems[menuEnum.EXISTENCEONLY]
+            menuItem.Check(True)
+            sendEvent(wx.wxEVT_COMMAND_MENU_SELECTED, menuItem.Id, \
+                      mainMenus[mainMenuEnum.FILE], eventHandler)
+        # With no results, disable save menu.
+        self._enableSaveMenu(False)
 
         # Option Menu
         menuEnum = self._optionMenuEnum
@@ -499,7 +544,11 @@ class HashCalculatorMainFrame(wx.Frame):
                  pos=wx.DefaultPosition, size=wx.DefaultSize, \
                  style=wx.DEFAULT_FRAME_STYLE, name=_frameName):
         # Init and load configurations.
-        self._loadConfig()
+        if not os.access(os.path.dirname(self._configPath), os.R_OK | os.W_OK):
+            self._configPath = os.path.join(os.path.expanduser('~'), \
+                                            'hashcalc_gui.cfg')
+        if self._loadConfig(sys.stdin.encoding) is None:
+            self._loadConfig()
         position = self._config['Position']
         size = self._config['Size']
         super(HashCalculatorMainFrame, self).__init__(\
@@ -510,6 +559,9 @@ class HashCalculatorMainFrame(wx.Frame):
         self._closeFrame = lambda *x: self.Close()
 
         # Set the application icon.
+        if os.path.islink(__file__):
+            self._iconPath = os.path.abspath(os.path.join(os.path.dirname(\
+                             os.path.realpath(__file__)), 'img/HC_icon.png'))
         if os.access(self._iconPath, os.R_OK):
             self._iconObj = wx.Icon(self._iconPath, wx.BITMAP_TYPE_PNG)
             self.SetIcon(self._iconObj)
@@ -595,6 +647,39 @@ class HashCalculatorMainFrame(wx.Frame):
             dialog.Destroy()
     # end of _addDir
 
+    def _verifyFiles(self, event):
+        config = self._config
+        style = wx.FD_OPEN | wx.FD_MULTIPLE | wx.FD_CHANGE_DIR
+        dialog = wx.FileDialog(self, self._usage(633), style=style, \
+                               defaultDir=config['LastDirectory'])
+        if dialog.ShowModal() == wx.ID_OK:
+            filePaths = dialog.GetPaths()
+            config['LastDirectory'] = os.path.dirname(filePaths[0])
+            self.SetStatusText(self._usage(634))
+            self._verifyHashes(filePaths)
+        if dialog:
+            dialog.Destroy()
+    # end of _verifyFiles
+
+    def _enableSaveMenu(self, isEnabled):
+        menuEnum = self._fileMenuEnum
+        menuItems = self._mainMenuItems[self._mainMenuEnum.FILE]
+        menuItems[menuEnum.SAVE].Enable(isEnabled)
+    # end of _enableSaveMenu
+
+    def _saveResults(self, event):
+        style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT | wx.FD_CHANGE_DIR
+        dialog = wx.FileDialog(self, self._usage(635), style=style)
+        if dialog.ShowModal() == wx.ID_OK:
+            filePath = dialog.GetPath()
+            with open(filePath, 'w') as file_:
+                for item in self._mainListBox.GetItems():
+                    file_.write(str_(item))
+            self.SetStatusText(self._usage(632))
+        if dialog:
+            dialog.Destroy()
+    # end of _saveResults
+
     def _setFileMenuOption(self, event):
         menuItemID = event.Id
         menuEnum = self._fileMenuEnum
@@ -606,12 +691,21 @@ class HashCalculatorMainFrame(wx.Frame):
         if menuItemID == menuItems[menuEnum.RECURSIVE].Id:
             hashCalculator.setRecursive(menuItem.IsChecked())
             config['Recursive'] = menuItem.IsChecked()
+        elif menuItemID == menuItems[menuEnum.EXISTENCEONLY].Id:
+            hashCalculator.setExistenceOnly(menuItem.IsChecked())
+            config['ExistenceOnly'] = menuItem.IsChecked()
     # end of _setFileMenuOption
 
     def _clearOutput(self, event):
         self._mainListBox.Clear()
+        self._enableSaveMenu(False)
         self.SetStatusText(self._usage(631))
     # end of _clearOutput
+
+    def _showHashType(self, event):
+        hashCalculator = self._hashCalculator
+        self.SetStatusText(' | '.join(hashCalculator.getAlgorithms()).upper())
+    # end of _showHashType
 
     def _setOptionMenuOption(self, event):
         menuItems = self._mainMenuItems[self._mainMenuEnum.OPTION]
@@ -688,7 +782,7 @@ class HashCalculatorMainFrame(wx.Frame):
 
     def _showAboutInfo(self, event):
         dialog = HtmlDialog(self.GetTopLevelParent(), self._usage(622), \
-                            self._usage(602), (260, 164))
+                            self._usage(602), (290, 200))
         dialog.ShowModal()
         if dialog:
             dialog.Destroy()
@@ -725,31 +819,53 @@ class HashCalculatorMainFrame(wx.Frame):
                 dialog.Resume()
     # end of _showProgressCallback
 
+    def _parseSrcItems(self, files, text):
+        hashCalculator = self._hashCalculator
+        srcFiles = []
+        srcDirs = []
+
+        hashCalculator.clearSrcItems()
+        if isinstance(files, list):
+            for file_ in files:
+                if os.path.isfile(file_):
+                    srcFiles.append(file_)
+                elif os.path.isdir(file_):
+                    srcDirs.append(file_)
+            try:
+                hashCalculator.addSrcFiles(srcFiles)
+                hashCalculator.addSrcDirs(srcDirs)
+            except hashcalclibError as he:
+                showError(self.GetTopLevelParent(), self._usage(636))
+                print str_(getExceptionMsg(he))
+                return False
+        elif isinstance(text, basestring):
+            try:
+                hashCalculator.addSrcStrings([text])
+            except hashcalclibError as he:
+                showError(self.GetTopLevelParent(), self._usage(636))
+                print str_(getExceptionMsg(he))
+                return False
+        else:
+            showError(self.GetTopLevelParent(), self._usage(636))
+            return False
+
+        return True
+    # end of _parseSrcItems
+
     def _calculateHashes(self, files=None, text=None):
         hashCalculator = self._hashCalculator
         if not hashCalculator.getAlgorithms():
             self.SetStatusText(self._usage(617))
             return False
 
-        dialog = self._createProgressDialog()
-        srcFiles = []
-        srcDirs = []
         resultEnum = Enum(('SUMMARY', 'LOG', 'HASHSTOCK'))
         result = None
 
-        hashCalculator.clearSrcItems()
-        if files is not None:
-            for file_ in files:
-                if os.path.isfile(file_):
-                    srcFiles.append(file_)
-                elif os.path.isdir(file_):
-                    srcDirs.append(file_)
-            hashCalculator.addSrcFiles(srcFiles)
-            hashCalculator.addSrcDirs(srcDirs)
-            self.SetStatusText(self._usage(611))
-        elif text is not None:
-            self.SetStatusText(self._usage(612))
-            hashCalculator.addSrcStrings([text])
+        hashCalculator.setAction('c')
+        if not self._parseSrcItems(files, text):
+            return False
+
+        dialog = self._createProgressDialog()
         hashCalculator.setupProgressBar(self._showProgressCallback)
         try:
             hashCalculator._computeItemsCount()
@@ -761,11 +877,20 @@ class HashCalculatorMainFrame(wx.Frame):
             self.SetStatusText(self._usage(15))
         finally:
             result = hashCalculator.getResult()
+            # Print log if any errors occurred
+            result[resultEnum.LOG].seek(0, os.SEEK_SET)
+            for line in result[resultEnum.LOG]:
+                self._mainListBox.Append(unicode_(line))
+            hashCalculator.clearLog()
+            # Print hash result
             with closing(SpooledTmpFile()) as file_:
                 result[resultEnum.HASHSTOCK].save(file_)
                 file_.seek(0, os.SEEK_SET)
                 for line in file_:
                     self._mainListBox.Append(unicode_(line))
+            if result[resultEnum.SUMMARY]['total'] != 0:
+                # If there are any results, enable save menu.
+                self._enableSaveMenu(True)
             if dialog:
                 dialog.Update(101)
                 dialog.Destroy()
@@ -776,11 +901,72 @@ class HashCalculatorMainFrame(wx.Frame):
                 window.Show()
     # end of _calculateHashes
 
+    def _parseHashFiles(self, files):
+        hashCalculator = self._hashCalculator
+
+        hashCalculator.clearSrcItems()
+        if isinstance(files, list):
+            try:
+                for file_ in files:
+                    hashCalculator.parseHashFile(file_)
+            except hashcalclibError as he:
+                showError(self.GetTopLevelParent(), self._usage(637))
+                print str_(getExceptionMsg(he))
+                return False
+        else:
+            showError(self.GetTopLevelParent(), self._usage(637))
+            return False
+
+        return True
+    # end of _parseHashFiles
+
+    def _verifyHashes(self, files=None):
+        hashCalculator = self._hashCalculator
+        resultEnum = Enum(('SUMMARY', 'LOG', 'HASHSTOCK'))
+        result = None
+
+        hashCalculator.setAction('v')
+        if not self._parseHashFiles(files):
+            return False
+
+        dialog = self._createProgressDialog()
+        hashCalculator.setupProgressBar(self._showProgressCallback)
+        try:
+            hashCalculator._computeItemsCount()
+            self._totalItems =  hashCalculator._totalItems
+            self._totalProgress = 0.0
+            hashCalculator.setVerbose(True)
+            hashCalculator.act()
+            hashCalculator.setVerbose(False)
+            self.SetStatusText(self._usage(613))
+        except KeyboardInterrupt:
+            self.SetStatusText(self._usage(15))
+        finally:
+            result = hashCalculator.getResult()
+            result[resultEnum.LOG].seek(0, os.SEEK_SET)
+            for line in result[resultEnum.LOG]:
+                self._mainListBox.Append(unicode_(line))
+            hashCalculator.clearLog()
+            if result[resultEnum.SUMMARY]['total'] != 0:
+                # If there are any results, enable save menu.
+                self._enableSaveMenu(True)
+            if dialog:
+                dialog.Update(101)
+                dialog.Destroy()
+            if self._hasSummary:
+                window = SpecialPopupWindow(\
+                    self.GetTopLevelParent(), wx.SIMPLE_BORDER, \
+                    self._usage(621, **result[resultEnum.SUMMARY]))
+                window.Show()
+    # end of _verifyHashes
+
     def _onFileDrop(self, files):
+        self.SetStatusText(self._usage(611))
         self._calculateHashes(files)
     # end of _onFileDrop
 
     def _onTextDrop(self, text):
+        self.SetStatusText(self._usage(612))
         self._calculateHashes(None, text)
     # end of _onTextDrop
 
@@ -822,7 +1008,7 @@ class HashCalculatorMainFrame(wx.Frame):
             # Save current configurations, window size, position, ..., etc.
             self._saveConfig()
         except (StandardError, ConfigParser.Error) as exc:
-            print getExceptionMsg(exc)
+            print str_(getExceptionMsg(exc))
 
         # event.Skip()
         self.Destroy()
@@ -842,7 +1028,7 @@ def sendEvent(eventType, targetID, eventObj, eventHandler, isSetInt=True, \
     affirm(eventHandler.ProcessEvent(event), usage(629))
 # end of sendEvent
 
-def getConfirmation(parent, message, caption):
+def getConfirmation(parent, message, caption=''):
     style = wx.YES_NO | wx.ICON_QUESTION | wx.STAY_ON_TOP | wx.CENTRE
     dialog = wx.MessageDialog(parent, message, caption, style)
     decision = dialog.ShowModal()
@@ -854,11 +1040,28 @@ def getConfirmation(parent, message, caption):
     else:
         return False
     """
-    # Input in other windows is still possible (modeless).
+    Input in other windows is still possible (modeless).
     return True if wx.MessageBox(message, caption, style, parent) == wx.YES \
                 else False
     """
 # end of getConfirmation
+
+def showMessageDialog(parent, message, caption='', style=wx.OK):
+    dialog = wx.MessageDialog(parent, message, caption, style)
+    dialog.ShowModal()
+    if dialog:
+        dialog.Destroy()
+# end of showMessageDialog
+
+def showInformation(parent, message, caption=''):
+    style = wx.OK | wx.ICON_INFORMATION | wx.STAY_ON_TOP | wx.CENTRE
+    showMessageDialog(parent, message, caption, style)
+# end of showInformation
+
+def showError(parent, message, caption=''):
+    style = wx.OK | wx.ICON_ERROR | wx.STAY_ON_TOP | wx.CENTRE
+    showMessageDialog(parent, message, caption, style)
+# end of showError
 
 
 class DirBrowseWindow(wx.Dialog):
@@ -1011,7 +1214,7 @@ class HtmlDialog(wx.Dialog):
         button = self._button
         sizeBase = None
         buttonSize = button.GetSize()
-        htmlOffset = tuple([x + 10 for x in htmlOffset])
+        htmlOffset = tuple([x + 15 for x in htmlOffset])
 
         window.SetPage(htmlText)
         window.SetBackgroundColour(self.GetBackgroundColour())

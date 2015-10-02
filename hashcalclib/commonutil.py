@@ -51,13 +51,13 @@ def affirm(condition, *args):
 
 def joinExceptionArgs(exc):
     """ `exc` should be the exception object"""
-    return ', '.join(str(s) for s in exc.args)
+    return u", ".join(unicode_(s) for s in exc.args)
 # end of joinExceptionArgs
 
 
 def getExceptionMsg(exc):
     """ `exc` should be the exception object"""
-    return '%s: %s' % (type(exc).__name__, joinExceptionArgs(exc))
+    return u"%s: %s" % (type(exc).__name__, joinExceptionArgs(exc))
 # end of getExceptionMsg
 
 
@@ -71,7 +71,7 @@ def makeStackTraceDict(stackTrace, msg='None'):
 # end of makeStackTraceDict
 
 
-def str_(obj, encoding='utf8', errors='ignore'):
+def str_(obj, encoding='utf-8', errors='ignore'):
     """Encode by default encoding if unicode"""
     if isinstance(obj, unicode):
         return obj.encode(encoding, errors)
@@ -90,7 +90,7 @@ def _toUTF16(obj):
     if obj.endswith(('\r', '\n')):
         obj = obj + nullChar
     try:
-        obj = unicode(obj, 'utf16')
+        obj = unicode(obj, 'utf-16')
     except UnicodeError:
         return None
 
@@ -98,17 +98,37 @@ def _toUTF16(obj):
 # end of _toUTF16
 
 
+def _processEncodings(encoding, encodings):
+    sysEncoding = ''
+
+    if isinstance(sys.stdin, file) \
+       and isinstance(sys.stdin.encoding, basestring):
+        sysEncoding = sys.stdin.encoding
+        try:
+            tmpEncoding = codecs.lookup(sysEncoding).name
+        except LookupError:
+            tmpEncoding = sys.getdefaultencoding()
+        if tmpEncoding not in encodings:
+            encodings.insert(0, tmpEncoding)
+
+    if isinstance(encoding, basestring):
+        try:
+            tmpEncoding = codecs.lookup(encoding).name
+            if tmpEncoding in encodings:
+                encodings.remove(tmpEncoding)
+            encodings.insert(0, tmpEncoding)
+        except LookupError:
+            tmpEncoding = ''
+# end of _processEncodings
+
+
 def unicode_(obj, encoding=None, errors='ignore'):
     """Transform the object to Unicode."""
     unicodeObj = None
-    encodings = ['utf8', 'utf16', 'ascii', 'cp950']
+    encodings = ['utf-8', 'utf-16', 'ascii']
     defaultEncoding = encodings[0]
 
-    if encoding is not None:
-        codecs.lookup(encoding)
-        if encoding in encodings:
-            encodings.remove(encoding)
-        encodings.insert(0, encoding)
+    _processEncodings(encoding, encodings)
 
     if isinstance(obj, unicode):
         return obj
@@ -127,8 +147,8 @@ def unicode_(obj, encoding=None, errors='ignore'):
 
     isDecoded = False
     for encoding_ in encodings:
-        # Try to solve the decoding issue for utf16.
-        if encoding_ == 'utf16':
+        # Try to solve the decoding issue for utf-16.
+        if encoding_ == 'utf-16':
             unicodeObj = _toUTF16(obj)
             if unicodeObj is not None:
                 isDecoded = True

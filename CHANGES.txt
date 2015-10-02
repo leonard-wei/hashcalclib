@@ -1,0 +1,128 @@
+# vim: tabstop=2 shiftwidth=2 softtabstop=2
+
+=======
+CHANGES
+=======
+
+-----
+1.6.3
+-----
+
+2015/09/17:
+1.Modify the default encoding name.
+2.Fix the verification fail when "uppercase" option is enabled.
+3.Add the function to clear log and reuse log temp file.
+4.Decode the exception message to unicode.
+5.Add the sys.stdin.encoding to the default encodings.
+GUI (hashcalc_gui.py):
+  1.Fix the encoding error of option "LastDirectory" in configuration file.
+  2.Add "Verify Files" and "Check Existence Only" in file menu .
+  3.Add "Save Results" in file menu.
+  4.Print the log when the calculation/verification is finished.
+
+-----
+1.6.2
+-----
+
+2015/04/07:
+1.Add an option to specify "encoding" for FileInfo.
+2.Add an option to specify "exclude dir" for HashCalculator.
+3.Add option in `HashCalculator` class to specify the progress callback.
+CLI (hashcalc.py):
+  1.Add an option "-X DIR, --exclude DIR"
+CLI (fileinfo.py):
+  1.Add an option "-e ENCODING, --encoding ENCODING"
+GUI (hashcalc_gui.py):
+  1.Add "Add Files", "Add Directory" and "Add Files Recursively" in file menu.
+  2.Add "Paste Items" in edit menu.
+  3.Add "Hash Type", "Show Hashes In Uppercase", "New Output Mode" and
+    "Show Summary" in option menu.
+  4.Add the progress dialog.
+  5.Add configurations saving/loading.
+  6.Add the support for hash algorithms, blake and sha3.
+
+-----
+1.6.1
+-----
+
+2015/03/06:
+CLI (hashcalc.py):
+  1.Fix the unicode error of strings calculation when the the algorithm
+    is BLAKE2 or SHA3.
+CLI (fileinfo.py):
+  1.Modify the output of the fileinfo. If an error occurs while listing
+    directory, print that directory and the error (e.g. permission denied)
+    instead of skipping it.
+  2.Check the invalid line format.
+  3.Check the whitespaces at the beginning or end of a line.
+
+-----
+1.6.0
+-----
+
+2014/12/07:
+1.Refine the entire codes.
+2.Add CLI interface.
+3.The FileInfo class is to list and check file information
+  (e.g. size, permission).
+4.Add GUI interface (require wxPython 2.8).
+
+-----
+1.5.0
+-----
+
+2014/10/10:
+1.Add some functions for debugging.
+2.Add the filter functions for calculating the matched files ("-P" for Unix
+  shell-style wildcards and "-R" for regular expression pattern).
+3.Add a new format for calculation/verification ("-A" option) in order to
+  improve the readability and also save some disk space.
+4.Add a "-H" option to put a comment of directory header above the files.
+
+-----
+1.4.3
+-----
+
+2014/09/01:
+1.Add the support for Adler-32 algorithm.
+2.Modify the log handling.
+3.Modify the error handling.
+4.Use the specified format of algorithm ("-a" option) for extraction.
+
+-----
+1.3.0
+-----
+
+2013/11/28:
+1.Add the support for BLAKE2 and SHA3 algorithms (additional packages required).
+2.Add the support for md4 and eD2k algorithms.
+3.Modify the error handling.
+
+-----
+1.2.0
+-----
+
+2013/09/05:
+1.Add the extraction option.
+2.Modify the buffer size for calculation.
+3.Check the legality of input encoding.
+
+-----
+1.1.1
+-----
+
+2013/09/02:
+1.Modify the display of calculation results.
+2.Modify the display of calculation progress.
+3.Add the "Check File Existence Only" option.
+4.Add the "-v" (verbose) option.
+5.Add the "-t" (tee) option.
+6.Modify the related functions of processing source files/dirs.
+
+-----
+1.0.0
+-----
+
+2013/08/20:
+Initial version.
+

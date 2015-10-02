@@ -9,7 +9,7 @@ import sys
 import traceback
 import warnings
 
-from hashcalclib import __version__, __author__, __date__
+from hashcalclib import __version__, __author__, __email__, __date__
 from hashcalclib.hashcalclib import HashCalculator, Error
 from hashcalclib.commonutil import joinExceptionArgs, getExceptionMsg, \
                                    makeStackTraceDict, str_, UsageHandler, \
@@ -22,7 +22,8 @@ class CmdlineUsage(UsageHandler):
     def __init__(self):
         super(CmdlineUsage, self).__init__()
         messages = {
-            101: '%(program)s - %(version)s by %(author)s, %(date)s.',
+            101: '%(program)s - %(version)s by %(author)s <%(email)s>, '\
+                 '%(date)s.',
             102: 'The path of the file that contains the hash info '\
                  'could be verified or which the calculated hash info will '\
                  'be saved to. If ACTION is "v", this argument is a '\
@@ -245,7 +246,7 @@ def parseCmdArgs(usage):
     parser.add_argument('-V', '--version', action='version', \
                         version=usage(101, program=program, \
                                       version=__version__, author=__author__, \
-                                      date=__date__))
+                                      email=__email__, date=__date__))
 
     return parser.parse_args()
 # end of parseCmdArgs

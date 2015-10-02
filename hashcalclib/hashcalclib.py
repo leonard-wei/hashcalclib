@@ -689,7 +689,7 @@ class HashCalculator(object):
     # Use '\n' instead of os.linesep for better compatibility.
     _newline = '\n'
     _commentChar = u"*"
-    _defaultEncoding = 'utf8'
+    _defaultEncoding = 'utf-8'
     _validAlgorithms = (
         'crc32', 'md5', 'sha1', 'sha224', 'sha256', 'sha384', 'sha512',
         'md4', 'ed2k', 'blake2b', 'blake2s', 'sha3_224', 'sha3_256',
@@ -942,7 +942,10 @@ class HashCalculator(object):
     # end of _selectFileMode
 
     def setLogFile(self, logFile):
-        """Set the log file"""
+        """
+        Set the path of log file. Call saveLog() after some operations
+        to save the log to the specified file.
+        """
         affirm(isinstance(logFile, basestring), \
                self._usage(11, arg='logFile', type_='basestring'))
 
@@ -953,6 +956,13 @@ class HashCalculator(object):
             self._logTmpFile.close()
         self._logTmpFile = SpooledTmpFile()
     # end of setLogFile
+
+    def clearLog(self):
+        """Clear the content of current log."""
+        if self._logTmpFile:
+            self._logTmpFile.close()
+            self._logTmpFile = SpooledTmpFile()
+    # end of clearLog
 
     def getFileFilterPattern(self):
         return self._fileFilterPattern
@@ -1075,10 +1085,10 @@ class HashCalculator(object):
 
         fileDir = os.path.dirname(filePath)
         extname = self._getExtname(filePath)[2]
-        if extname in self._extnameMap:
-            algorithm = self._extnameMap[extname]
-        elif self._algorithms:
+        if self._algorithms:
             algorithm = self._algorithms[0]
+        elif extname in self._extnameMap:
+            algorithm = self._extnameMap[extname]
         else:
             raise Error(\
                 self._usage(201, self._str(os.path.basename(filePath))))
@@ -1088,7 +1098,7 @@ class HashCalculator(object):
                                             algorithm, []))
             for line in file_:
                 line = self._unicode(line)
-                if line.startswith(self._commentChar) is True:
+                if line.startswith(self._commentChar):
                     newOutputRowMatch = self._newOutputRowRegex.search(line)
                     if newOutputRowMatch:
                         newOutputRowMatch = newOutputRowMatch.groupdict()
@@ -1111,7 +1121,7 @@ class HashCalculator(object):
         with open(hashPathsFile, 'r') as file_:
             for line in file_:
                 line = self._unicode(line)
-                if line.startswith(self._commentChar) is False \
+                if (not line.startswith(self._commentChar)) \
                    and self._emptyRowRegex.search(line) is None:
                     pathRowMatch = self._pathRowRegex.search(line)
                     if pathRowMatch:
@@ -1346,9 +1356,7 @@ class HashCalculator(object):
         self.clearAlgorithms()
         self._action = 'c'
         self._hashStock.reset()
-        if self._logTmpFile:
-            self._logTmpFile.close()
-            self._logTmpFile = SpooledTmpFile()
+        self.clearLog()
     # end of reset
 
     def __init__(\
@@ -1624,12 +1632,11 @@ class HashCalculator(object):
                     self._itemOK += 1
     # end of _calculate
 
-
     def _verify(self):
         """Verify the hash according to the given arguments."""
         result = self._VERIFIED_RESULT.FAIL
         logFile = self._logTmpFile
-        oldAlgorithm = self._algorithms[:1] if self._algorithms else []
+        oldAlgorithms = self._algorithms[:]
 
         for hashFileDir, newOutputDir, algorithm, items \
                 in self._filesToBeVerified:
@@ -1640,7 +1647,8 @@ class HashCalculator(object):
                     fileText = hashRowMatch['path'] if newOutputDir is None \
                                else os.path.join(newOutputDir, \
                                                  hashRowMatch['path'])
-                    hash_ = hashRowMatch['hash'].lower()
+                    hash_ = hashRowMatch['hash'].upper() if self._isUppercase \
+                            else hashRowMatch['hash'].lower()
                     if not self._isFileMatched(os.path.basename(fileText)):
                         self._totalItems -= 1
                         continue
@@ -1674,7 +1682,7 @@ class HashCalculator(object):
                     # 240: 'Found', 241: 'OK', 242: 'FAIL'
                     self._print(self._usage(240 + result, fileText), logFile)
 
-        self._algorithms[:] = oldAlgorithm
+        self._algorithms[:] = oldAlgorithms
     # end of _verify
 
     def act(self):
@@ -1707,14 +1715,17 @@ class HashCalculator(object):
             self.setHashFile(hashFile)
 
         if self._action != 'v' and self._hashFile:
-            with open (self._hashFile, self._hashFileMode) as file_:
+            with open(self._hashFile, self._hashFileMode) as file_:
                 self._hashStock.save(file_)
             self._hashFile = None
             self._hashFileMode = 'a'
     # end of saveResult
 
     def saveLog(self):
-        """Save the log to the specified log file."""
+        """
+        Save the log to the specified file. The log will output to stdout
+        after this call.
+        """
         if self._logFile:
             self._logTmpFile.seek(0, os.SEEK_SET)
             with open(self._logFile, self._logFileMode) as file_:
@@ -1826,7 +1837,7 @@ class FileInfo(object):
     _COLUMN = Enum(('PATH', 'ATTRIBUTES', 'SIZE', 'COUNT'))
     _usage = FileInfoUsage()
     _commentChar = u"*"
-    _defaultEncoding = 'utf8'
+    _defaultEncoding = 'utf-8'
     _isSilent = False
     _isRecursive = False
     _exclusiveDirs = []
@@ -2247,7 +2258,7 @@ class FileInfo(object):
         filePath = os.path.abspath(self._unicode(filePath))
         mode = self._selectFileMode(filePath)
 
-        with open (filePath, mode) as file_:
+        with open(filePath, mode) as file_:
             file_.write(tmpFile.read())
     # end of save
-# end of FileInfoFetcher
+# end of FileInfo
