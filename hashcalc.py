@@ -14,6 +14,7 @@ import warnings
 import zlib
 
 from ctypes import c_uint
+from tempfile import SpooledTemporaryFile as SplTmpFile
 
 
 class UsageHandler(object):
@@ -21,7 +22,7 @@ class UsageHandler(object):
 
     USAGE_HEADER = 'usage: %(msg)s'
     SP = '\x20\x20\x20\x20'
-    HR =  '----------'
+    HR =  '-'
     USAGE_MSG = {
         1: '\n' + SP + 'Internal Error!',
         2: '\n' + SP + '%(msg)s',
@@ -69,7 +70,7 @@ class MainUsageHandler(UsageHandler):
         super(MainUsageHandler, self).__init__(*args, **kwargs)
         SP = self.SP
         messages = {
-            101: '%(prog)s - 1.0 (Python 2.7.5 final) '\
+            101: '%(prog)s - 1.11 (Python 2.7.5 final) '\
                  'by Leonard Wei(gooxxgle.mail@gmail.com), 24 JUL 2013.',
             102: 'The path of the file that contains the hash '\
                  'info to verify or which the calculated hash info will '\
@@ -83,11 +84,13 @@ class MainUsageHandler(UsageHandler):
                  '(default will use the extname to determine, '\
                  'described later). If ACTION is "c", this is a '\
                  '*MUST* argument to decide which hash algorithm '\
-                 'will be used to calculate the file hash. The '\
+                 'will be used to calculate the hash. The '\
                  'valid arguments(the corresponding extension '\
                  'name) are "crc32"(*.sfv), "md5"(*.md5), "sha1"'\
                  '(*.sha1), "sha224"(*.sha224), "sha256"(*.sha256'\
-                 '), "sha384"(*.sha384), "sha512"(*.sha512).',
+                 '), "sha384"(*.sha384), "sha512"(*.sha512). This option '\
+                 'could be used multiple times, but specify the same '\
+                 'algorithm multiple times will only apply once.',
             104: 'The file(s) need to be calculated their '\
                  'hash. This option could be used multiple times.',
             105: '\n' + SP + '.',
@@ -111,7 +114,7 @@ class MainUsageHandler(UsageHandler):
             114: 'If specified, It will recursively searches all files '\
                  'under the directory and calculates the hashes. Only '\
                  'effective with the "-d" option.',
-            115: '\nPress Any Key to Continue...',
+            115: 'Press Any Key to Continue...',
             116: 'The specified file must contain the path(s) of hash file. '\
                  'This is similar to "-o" option, but only available when '\
                  'ACTION is "v". Useful when the cli environment could not '\
@@ -124,20 +127,23 @@ class MainUsageHandler(UsageHandler):
                  'content of hash file or hash list, default will try to '\
                  'use the following encoding "utf-8", "utf-16", "ascii" and '\
                  '"cp950".',
-            119: 'The specified must contain the strings(start with '\
-                 '"STRING="), paths of any files or a directory. '\
+            119: 'The specified file must contain the strings(start with '\
+                 '"STRING="), paths of any files or directories. '\
                  'This is similar to a combination of the "-s", "-f" '\
                  'and "-d" option, but only available when ACTION is '\
                  '"c". Useful when the cli environment could not '\
                  'support unicode properly or batch Calculation.'\
-                 ' If "-s", "-f" or "-d" are specified, it will also try to '\
-                 'process them. Note that if the list file contain mutiple '\
-                 'directory, it will only take the last one. And if "-d" is '\
-                 'also specified, it will take precedence. '\
-                 'A line start with "*" is considered as a comment.',
+                 ' If "-s", "-f" or "-d" are specified, it will also '\
+                 'try to process them. A line start with "*" is '\
+                 'considered as a comment.',
             120: 'Save the output messages to the specified log file',
             121: '\n' + SP + 'When action is "v" and only "-l" option is '\
                  'specified, the "-a" option is required.',
+            122: 'Output to stdout, as well as any hash and/or log files.',
+            123: 'When specified, just check the file existence and no '\
+                 'hashes will be verified. Only effective with action "v"',
+            124: 'Show all output result(default only show the "FAIL" and '\
+                 '"Not Found"). Only effective with action "v".',
         }
         self.USAGE_MSG.update(messages)
     # End of __init__
@@ -156,7 +162,7 @@ class ProgressUsageHandler(UsageHandler):
         }
         self.USAGE_MSG.update(messages)
     # End of __init__
-# End of MainUsageHandler
+# End of ProgressUsageHandler
 
 
 class HashUsageHandler(UsageHandler):
@@ -165,9 +171,9 @@ class HashUsageHandler(UsageHandler):
     def __init__(self, *args, **kwargs):
         super(HashUsageHandler, self).__init__(*args, **kwargs)
         SP = self.SP
-        HR = self.HR
+        HR = self.HR * 15
         TITLE = 'Hash Calculator'
-        HR_TITLE = HR * 2 + HR[0] * len(TITLE)
+        HR_TITLE = HR * 2 + self.HR * len(TITLE)
         messages = {
             201: '\n' + SP + 'Invalid extension name of hash file: '\
                  '"%(extname)s".',
@@ -175,7 +181,7 @@ class HashUsageHandler(UsageHandler):
                  '"src_files", "src_dirs and "src_list" are not allowed.',
             203: '\n' + SP + 'When action is "v", the "hash_path" or '\
                  '"hash_list" is required.',
-            204: '\n' + SP + 'When action is "c", the "hash_algo" '\
+            204: '\n' + SP + 'When action is "c", the "hash_algos" '\
                  'is required.',
             205: '\n' + SP + 'When action is "c", the "src_strings", '\
                  '"src_files", "src_dirs" or "src_list" are required.',
@@ -184,16 +190,21 @@ class HashUsageHandler(UsageHandler):
             207: '\n' + SP + 'The file specified in "%(varname)s" already '\
                  'exists and could not get the write permission.',
             208: '\n' + SP + 'When action is "v" and only "hash_list" is '\
-                 'specified, the "hash_algo" is required.',
-            209: '\n' + SP + 'The "src_dirs" must be a directory.',
-            210: '"%(filepath)s" not found, not a file or no privileges.',
+                 'specified, the "hash_algos"(*only one) is required.',
+            209: '\n' + SP + '"%(filepath)s" is not a directory.',
+            210: '"%(filepath)s" is not found, not a file or unable to read.',
             211: 'UnicodeDecodeError: "%(string)r"',
             212: '\n' + SP + 'When action is "c", the "hash_list" '\
                  'is not allowed.',
+            213: '\n' + SP + '"hash_algos" is invalid or specified more than '\
+                 'once: %(varval)s.',
             230: HR * 1 + TITLE + HR * 1,
             231: 'Start Date: %(stime)s\n\n' + HR_TITLE ,
-            232: '\n' + HR_TITLE + '\nOK: %(ok)d | FAIL: %(fail)d | '\
-                 'Total Items: %(total)d\nElapsed Time: %(etime).1f seconds',
+            232: ('\n' + HR_TITLE + '\n%-4s: %s | %-9s: %s | %-5s: %s\n%-4s: '\
+                 '%s | %-9s: %s\n%s: %s\n\n' + HR_TITLE )% \
+                 ('OK', '%(ok)5d', 'Found', '%(found)5d', 'Total', \
+                  '%(total)5d', 'FAIL', '%(fail)5d', 'Not Found', '%(nofnd)5d',
+                  'Elapsed Time', '%(etime).1f seconds'),
             233: 'Output File: %(filepath)s',
             234: '%(result)s\t: %(filename)s',
             235: '"%(line)s" invalid format.',
@@ -202,7 +213,7 @@ class HashUsageHandler(UsageHandler):
         }
         self.USAGE_MSG.update(messages)
     # End of __init__
-# End of MainUsageHandler
+# End of HashUsageHandler
 
 
 class ProgressBar(object):
@@ -211,7 +222,8 @@ class ProgressBar(object):
     `prog_prec`:    If not specified, default is 0. 1 means the percentage
                     of progress would be 'nnn.n%', and 2 means 'nnn.nn%', ...
                     etc.
-    `bar_len`:      Determine the length of progress bar.
+    `bar_len`:      Determine the total length of progress bar(this Argument
+                    including the length of '[', ']' and percentage).
     `bar_style`:    A list to determine the style of progress bar. Default
                     ['[', '=', '>', '.', ']'] means '[==>.......]'.
     """
@@ -221,16 +233,21 @@ class ProgressBar(object):
     _prog_fmt = None
     _bar_len = 10
     _bar_style = ['[', '=', '>', '.', ']']
+    output = False
 
-    def __init__(self, prog_prec=None, bar_len=None, bar_style=None):
+    def __init__(self, prog_prec=None, bar_len=None, bar_style=None, \
+                 output=False):
         if prog_prec:
             self._prog_prec = prog_prec
             assert isinstance(self._prog_prec, int), self._pb_usage(11, \
                    varname='prog_prec', vartype='int')
+        prog_prec_len = 0 if self._prog_prec == 0 else 1 + self._prog_prec
+
         if bar_len:
-            self._bar_len = bar_len
+            self._bar_len = bar_len - 7 - prog_prec_len
             assert isinstance(self._bar_len, int), self._pb_usage(11, \
                    varname='bar_len', vartype='int')
+
         if bar_style:
             self._bar_style = bar_style
             assert (isinstance(self._bar_style, list) and \
@@ -240,10 +257,19 @@ class ProgressBar(object):
                     self._bar_style[idx] = str(self._bar_style[idx])[0]
                 self._bar_style[idx] = self._bar_style[idx][0]
 
+        if isinstance(output, bool):
+            self.output = output
+
         self._prog_fmt = '\r' + self._bar_style[0] + '%s' + \
-                         self._bar_style[4] + ' %3.' + \
-                         str(self._prog_prec) + 'f%%'
+                         self._bar_style[4] + ' %' + str(3 + prog_prec_len) \
+                         + '.' + str(self._prog_prec) + 'f%%'
     # End of __init__
+
+    def _print(self, obj):
+        obj = obj if isinstance(obj, basestring) else str(obj)
+        sys.stdout.write(obj)
+        sys.stdout.flush()
+    # End of _print
 
     def update(self, progress):
         assert isinstance(progress, float), self._pb_usage(11, \
@@ -261,12 +287,12 @@ class ProgressBar(object):
         prog_str = self._prog_fmt % (s[1] * bar_ok + s[2] * bar_gt + s[3] * \
                                      (self._bar_len - bar_ok - bar_gt), \
                                      progress * 100)
-        sys.stdout.write(prog_str)
-        sys.stdout.flush()
-        #print "%3d%%\r\b" % (progress * 100)
-        if progress == 1:
-            sys.stdout.write('\r' + ' ' * len(prog_str) + '\r')
-            sys.stdout.flush()
+        if self.output:
+            self._print(prog_str)
+            if progress == 1:
+                self._print('\r' + ' ' * len(prog_str) + '\r')
+        else:
+            return prog_str
     # End of update
 # End of ProgressBar
 
@@ -302,48 +328,55 @@ class HashCalculator(object):
     `src_list`:     List of string(s), file(s) and dir(s).
     `recursive`:    If `src_dirs` is specified, it will process all files
                     under `src_dirs` recursively.
-    `hash_algo`:    Hash algorithm.
+    `hash_algos`:    List of hash algorithm(s).
     `uppercase`:    Return uppercase hash code if True,
     `hash_path`:    Hash file path.
     `hash_list`:    Hash file list.
+    `exist_only`:   Only check file existence when action is "v".
+    `verbose`:      Show all output when action is "v", default only show
+                    the "FAIL" and "Not Found".
     `encoding`:     Try to use the specified encoding to decode first.
     `hash_log`:     Save output messages to the specified file.
     `hash_buf_siz`: Hash buffer size when calculate, default is 1048576 bytes.
+    `tee`:          If hash_path and/or hash_log are specified, it also output
+                    to stdout.
     """
 
     _hash_usage = HashUsageHandler()
-    _pat_file_ext = re.compile(r"^(?P<main>.+)(?P<sep>\.)(?P<ext>[^\n\.]+)$")
-    _valid_hash_algo = ('crc32', 'md5', 'sha1', 'sha224', 'sha256', \
+    _pat_file_ext = re.compile(r"^(?P<main>.+)(?P<sep>\.)(?P<ext>[^\n\.]+)$", \
+                               re.U)
+    _valid_hash_algos = ('crc32', 'md5', 'sha1', 'sha224', 'sha256', \
                        'sha384', 'sha512')
     _ext_map = {
-        'sfv': _valid_hash_algo[0],
-        'md5': _valid_hash_algo[1],
-        'sha1': _valid_hash_algo[2],
-        'sha224': _valid_hash_algo[3],
-        'sha256': _valid_hash_algo[4],
-        'sha384': _valid_hash_algo[5],
-        'sha512': _valid_hash_algo[6],
+        'sfv': _valid_hash_algos[0],
+        'md5': _valid_hash_algos[1],
+        'sha1': _valid_hash_algos[2],
+        'sha224': _valid_hash_algos[3],
+        'sha256': _valid_hash_algos[4],
+        'sha384': _valid_hash_algos[5],
+        'sha512': _valid_hash_algos[6],
     }
     _pat_hash_str = r"<hash>[0-9A-Za-z]"
-    _pat_file_str = r"<file>[^\?\t\v\r\n\f]+"
+    _pat_file_str = r"<file>[^\t\v\r\n\f]+"
     _pat_sep_str = r"\t+|\x20+"
     _pat_crc32_str = r"^(?P%s)(?:%s)\*?(?P%s{8})(?:[\s]*)$" \
                      % (_pat_file_str, _pat_sep_str, _pat_hash_str)
     _pat_hashlib_str = r"^(?P%s{%s})(?:%s)\*?(?P%s)(?:[\s]*)$" \
                        % (_pat_hash_str, r"%s", _pat_sep_str, _pat_file_str)
     _pat_hash_item = {
-        _valid_hash_algo[0]: re.compile(_pat_crc32_str, re.U),
-        _valid_hash_algo[1]: re.compile(_pat_hashlib_str % ("32"), re.U),
-        _valid_hash_algo[2]: re.compile(_pat_hashlib_str % ("40"), re.U),
-        _valid_hash_algo[3]: re.compile(_pat_hashlib_str % ("56"), re.U),
-        _valid_hash_algo[4]: re.compile(_pat_hashlib_str % ("64"), re.U),
-        _valid_hash_algo[5]: re.compile(_pat_hashlib_str % ("96"), re.U),
-        _valid_hash_algo[6]: re.compile(_pat_hashlib_str % ("128"), re.U),
+        _valid_hash_algos[0]: re.compile(_pat_crc32_str, re.U),
+        _valid_hash_algos[1]: re.compile(_pat_hashlib_str % ("32"), re.U),
+        _valid_hash_algos[2]: re.compile(_pat_hashlib_str % ("40"), re.U),
+        _valid_hash_algos[3]: re.compile(_pat_hashlib_str % ("56"), re.U),
+        _valid_hash_algos[4]: re.compile(_pat_hashlib_str % ("64"), re.U),
+        _valid_hash_algos[5]: re.compile(_pat_hashlib_str % ("96"), re.U),
+        _valid_hash_algos[6]: re.compile(_pat_hashlib_str % ("128"), re.U),
     }
     _pat_file_line = re.compile((r"^(?P%s)(?:[\s]*)$" % (_pat_file_str)), re.U)
     _pat_string_line = re.compile(r"^STRING=(?P<string>[^\r\n]+)(?:[\r\n]*)$",
                                   re.U)
     _pat_empty_line = re.compile(r"^[\r\n]*$", re.U)
+    _pat_err_line = re.compile(r"^[^\r\n]*", re.U)
     _def_enc = 'utf8'
     _encodings = ['utf8', 'utf16', 'ascii', 'cp950',]
     _newline = os.linesep
@@ -356,17 +389,38 @@ class HashCalculator(object):
     src_files = []
     src_dirs = []
     recursive = False
-    hash_algo = None
+    hash_algos = []
     uppercase = False
     hash_path = None
     hash_dir = None
     hash_list = None
+    exist_only = False
+    verbose = False
     vfy_files = []
     proc_ok = 0
     proc_fail = 0
+    proc_found = 0
+    proc_nofnd = 0
     hash_log = None
     hash_buf_siz = (2 << 19)
+    # length of '[==========] 100%'
+    prog_bar_len = 17
+    line_limit = (77 - prog_bar_len)
+    tee = False
     total_item = 0
+
+    def _print(self, obj, fp=None, end='\n'):
+        """Determine the output to stdout or file"""
+        obj = obj if isinstance(obj, basestring) else str(obj)
+        end = end if isinstance(end, basestring) else '\n'
+
+        if isinstance(fp, (file, SplTmpFile)):
+            fp.write(obj + end)
+
+        if fp is None or self.tee is True:
+            sys.stdout.write(obj + end)
+            sys.stdout.flush()
+    # End of _print
 
     def _get_file_extname(self, filename, default_ext='', sep='.'):
         """
@@ -407,8 +461,10 @@ class HashCalculator(object):
         """Encode by default encoding if unicode"""
         if isinstance(string, unicode):
             return string.encode(self._def_enc, errors)
-        else:
+        elif isinstance(string, str):
             return string
+        else:
+            return str(string)
     # End of _to_str
 
     def _to_unicode(self, src_obj):
@@ -462,8 +518,12 @@ class HashCalculator(object):
         if isinstance(src_obj, (list, tuple)):
             src_obj_u = []
             for item in src_obj:
-                src_obj_u.append(_to_unicode_single(item, self._encodings))
-        elif isinstance(src_obj, str):
+                src_obj_u.append(self._to_unicode(item))
+        elif isinstance(src_obj, dict):
+            src_obj_u_keys = self._to_unicode(src_obj.keys())
+            src_obj_u_vals = self._to_unicode(src_obj.values())
+            src_obj_u = dict(zip(src_obj_u_keys, src_obj_u_vals))
+        else:
             src_obj_u = _to_unicode_single(src_obj, self._encodings)
 
         return src_obj_u
@@ -474,13 +534,19 @@ class HashCalculator(object):
         if fdir is not None:
             if not isinstance(fdir, unicode):
                 fdir = self._to_unicode(fdir)
+
             if os.path.isabs(fdir) is False:
                 fdir = os.path.abspath(fdir)
-            assert os.path.isdir(fdir), self._hash_usage(209)
+
+            if os.path.isdir(fdir) is False:
+                self._print(self._hash_usage(209, filepath=self._to_str(fdir)))
+                return (None, [])
+
             root_flag = False
             if root is None:
                 root_flag = True
                 root = fdir
+
             flist = []
             flist_sub = []
             flist_tmp = os.listdir(fdir)
@@ -498,10 +564,9 @@ class HashCalculator(object):
                         flist.append(os.path.join(os.path.relpath(fdir, root),
                                                   fitem))
             flist.extend(flist_sub)
-
             return (fdir, flist) if root_flag is True else flist
 
-        return (fdir, [])
+        return (None, [])
     # End of _get_file_list
 
     def _parse_src_dirs(self, src_dirs):
@@ -518,10 +583,10 @@ class HashCalculator(object):
     def _parse_src_list(self, src_list):
         """Parse the list of strings, files and dirs"""
         if isinstance(src_list, basestring):
-            src_list = os.path.abspath(src_list)
+            src_list = os.path.abspath(self._to_unicode(src_list))
             assert (os.path.isfile(src_list) and \
                     os.access(src_list, os.R_OK)), \
-                   self._hash_usage(210, filepath=src_list)
+                   self._hash_usage(210, filepath=self._to_str(src_list))
 
             src_list_loc = os.path.dirname(src_list)
             src_list_strings = []
@@ -556,6 +621,7 @@ class HashCalculator(object):
 
             src_list_strings.sort()
             src_list_files.sort()
+            src_list_dirs.sort()
             self.src_strings.append((None, src_list_strings))
             self.src_files.append((src_list_loc, src_list_files))
             self._parse_src_dirs(src_list_dirs)
@@ -563,20 +629,22 @@ class HashCalculator(object):
 
     def __init__(self, action, src_strings=None, src_files=None, \
                  src_dirs=None, src_list=None, recursive=None, \
-                 hash_algo=None, uppercase=None, hash_path=None, \
-                 hash_list=None, encoding=None, hash_log=None, \
-                 hash_buf_siz=None):
-        """Initialize and check all arguments."""
-        assert (action is not None), self._hash_usage(12, varname='action', \
-                                                      varval=str(action))
-        self.action = action
-
+                 hash_algos=None, uppercase=None, hash_path=None, \
+                 hash_list=None, exist_only=None, verbose=None, \
+                 encoding=None, hash_log=None, hash_buf_siz=None, tee=None):
+        """Initialize and parse all arguments."""
+        # Parsing `encoding`
         if encoding:
             self._encodings.insert(0, encoding)
 
+        # Parsing `action`
+        assert (action is not None), self._hash_usage(12, varname='action', \
+                                                      varval=str(action))
+        self.action = action
         if self.action == 'c':
+            # Parsing `src_strings`, `src_files`
             assert (hash_list is None), m_usage(212)
-            assert not (hash_algo is None), m_usage(204)
+            assert not (hash_algos is None), m_usage(204)
 
             assert (src_strings is not None or src_files is not None \
                     or src_dirs is not None or src_list is not None), \
@@ -588,11 +656,15 @@ class HashCalculator(object):
                                   if isinstance(src_files, list) else []))))
             self.src_strings[0][1].sort()
             self.src_files[0][1].sort()
+
+            # Parsing `recursive`
             if recursive:
                 assert isinstance(recursive, bool), \
                        self._hash_usage(11, varname='recursive', \
                                         vartype='bool')
                 self.recursive = recursive
+
+            # Parsing `src_dirs` and `src_list`
             self._parse_src_dirs((src_dirs if isinstance(src_dirs, list) \
                                            else []))
             self._parse_src_list(src_list)
@@ -600,19 +672,21 @@ class HashCalculator(object):
                                sum([len(sf[1]) for sf in self.src_files]) + \
                                sum([len(sd[1]) for sd in self.src_dirs])
 
+            # Parsing `uppercase`
             if uppercase:
                 assert isinstance(uppercase, bool), self._hash_usage(11, \
                        varname='uppercase', vartype='bool')
                 self.uppercase = uppercase
 
+            # Parsing `hash_path`
             if hash_path:
-                if os.path.isabs(hash_path) is False:
-                    hash_path = os.path.abspath(hash_path)
+                hash_path = os.path.abspath(self._to_unicode(hash_path))
                 self.hash_dir = os.path.dirname(hash_path)
                 assert ((not os.path.isdir(hash_path)) and \
                         os.access(self.hash_dir, os.W_OK)), \
                        self._hash_usage(206, varname='hash_path')
                 self.hash_path = hash_path
+
                 if os.access(self.hash_path, os.F_OK):
                     assert os.access(self.hash_path, os.W_OK), \
                            self._hash_usage(207, varname='hash_path')
@@ -624,6 +698,20 @@ class HashCalculator(object):
                                self._hash_usage(15)
                     self._save_mode = 'a' if usr_in == 'a' else 'w'
                 self._save_flag = True
+
+            # Parsing `hash_algos`
+            assert isinstance(hash_algos, list), self._hash_usage(12, \
+                   varname='hash_algos', varval=str(hash_algos))
+            chked_hash_algos = []
+            for hash_algo in hash_algos:
+                if hash_algo in chked_hash_algos:
+                    continue
+                if hash_algo in self._valid_hash_algos:
+                    chked_hash_algos.append(hash_algo)
+                else:
+                    raise AssertionError(self._hash_usage(12, varname=\
+                                         'hash_algos', varval=str(hash_algo)))
+            self.hash_algos.extend(chked_hash_algos)
         else:
             assert (src_strings is None and src_files is None \
                     and src_dirs is None and src_list is None), \
@@ -631,38 +719,64 @@ class HashCalculator(object):
 
             assert (hash_path is not None or hash_list is not None), \
                    self._hash_usage(203)
+
+            # Parsing `hash_path`
             if hash_path:
-                self.hash_path = os.path.abspath(hash_path)
+                self.hash_path = os.path.abspath(self._to_unicode(hash_path))
                 assert (os.path.isfile(self.hash_path) and \
                         os.access(self.hash_path, os.R_OK)), \
-                       self._hash_usage(210, filepath=self.hash_path)
+                       self._hash_usage(210, filepath=\
+                                        self._to_str(self.hash_path))
                 self.hash_dir = os.path.dirname(self.hash_path)
+
+            # Parsing `hash_list`
             if hash_list:
-                self.hash_list = os.path.abspath(hash_list)
+                self.hash_list = os.path.abspath(self._to_unicode(hash_list))
                 assert (os.path.isfile(self.hash_list) and \
                         os.access(self.hash_list, os.R_OK)), \
-                       self._hash_usage(210, filepath=self.hash_list)
-                assert (hash_path is not None or hash_algo is not None), \
+                       self._hash_usage(210, filepath=\
+                                        self._to_str(self.hash_list))
+                assert (hash_path is not None or hash_algos is not None), \
                        self._hash_usage(208)
 
+            # Parsing `exist_only`
+            if exist_only:
+                assert isinstance(exist_only, bool), self._hash_usage(11, \
+                       varname='exist_only', vartype='bool')
+                self.exist_only = exist_only
+
+            # Parsing `verbose`
+            if verbose:
+                assert isinstance(verbose, bool), self._hash_usage(11, \
+                       varname='verbose', vartype='bool')
+                self.verbose = verbose
+
+            # Parsing `hash_algos`
+            if isinstance(hash_algos, list):
+                if len(hash_algos) == 1 \
+                   and hash_algos[0] in self._valid_hash_algos:
+                    self.hash_algos.append(hash_algos[0])
+                else:
+                    raise AssertionError(self._hash_usage(213, varval=\
+                                                          str(hash_algos)))
+            elif hash_algos is None:
+                hash_extname = self._get_file_extname(self.hash_path or '')[2]
+                if hash_extname in self._ext_map:
+                    self.hash_algos.append(self._ext_map[hash_extname])
+                else:
+                    raise AssertionError(self._hash_usage(201, extname=\
+                                         self._to_str(hash_extname)))
+            else:
+                raise AssertionError(self._hash_usage(12, varname=\
+                                     'hash_algos', varval=str(hash_algos)))
+
+        # Parsing `hash_buf_siz`
         if hash_buf_siz:
             assert isinstance(hash_buf_siz, int), \
                    self._hash_usage(11, varname='hash_buf_siz', vartype='int')
             self.hash_buf_siz = hash_buf_siz
 
-        if hash_algo in self._valid_hash_algo:
-            self.hash_algo = hash_algo
-        elif hash_algo is None:
-            hash_extname = self._get_file_extname(self.hash_path or '')[2]
-            if hash_extname in self._ext_map:
-                self.hash_algo = self._ext_map[hash_extname]
-            else:
-                raise AssertionError(self._hash_usage(201, extname=\
-                                                      str(hash_extname)))
-        else:
-            raise AssertionError(self._hash_usage(12, varname='hash_algo', \
-                                                  varval=str(hash_algo)))
-
+        # Parsing `hash_log`
         if hash_log:
             if os.path.isabs(hash_log) is False:
                 hash_log = os.path.abspath(hash_log)
@@ -681,32 +795,38 @@ class HashCalculator(object):
                            self._hash_usage(15)
                 self._log_mode = 'a' if usr_in == 'a' else 'w'
             self._log_flag = True
+
+        # Parsing `tee`
+        if tee:
+            assert isinstance(tee, bool), self._hash_usage(11, \
+                   varname='tee', vartype='bool')
+            self.tee = tee
+
         # Debug Message
         """
         from pprint import pprint
         pprint(dict(action=self.action, src_strings=self.src_strings, \
                     src_files=self.src_files, src_dirs=self.src_dirs, \
-                    src_list=str(src_list), recursive=self.recursive, \
-                    hash_algo=self.hash_algo, uppercase=self.uppercase, \
-                    hash_path=self.hash_path, hash_list=str(hash_list), \
-                    encoding=str(encoding), newline=self._newline, \
+                    src_list=src_list, recursive=self.recursive, \
+                    hash_algos=self.hash_algos, uppercase=self.uppercase, \
+                    hash_path=self.hash_path, hash_list=hash_list, \
+                    exist_only=self.exist_only, verbose=self.verbose, \
+                    encoding=encoding, newline=self._newline, \
                     hash_log=self.hash_log, _log_flag=self._log_flag, \
                     _log_mode=self._log_mode, _save_flag=self._save_flag, \
-                    _save_mode=self._save_mode, \
-                    hash_buf_siz=self.hash_buf_siz))
+                    _save_mode=self._save_mode, hash_buf_siz=\
+                    self.hash_buf_siz, tee=self.tee))
         raise AssertionError('-------DEBUG-------')
         """
     # End of __init__
 
-    def _print(self, message, log_fp=None, newline=True):
-        """Determine the output to stdout or log file"""
-        nl = '\n' if newline else ''
-        if log_fp:
-            log_fp.write(message + nl)
+    def _get_hash_obj(self, hash_algo):
+        """Return the object of hash algorithm"""
+        if hash_algo == 'crc32':
+            return HashCRC32()
         else:
-            sys.stdout.write(message + nl)
-            sys.stdout.flush()
-    # End of _print
+            return getattr(hashlib, hash_algo)()
+    # End of _get_hash_obj
 
     def _calc_str_hash(self, string):
         """Calculate the hash of the given string."""
@@ -715,31 +835,50 @@ class HashCalculator(object):
         str_siz = len(string)
         hash_buf_siz = str_siz if str_siz < self.hash_buf_siz \
                                else self.hash_buf_siz
+        hash_objs = []
+        hash_codes = []
         proc_pos = 0
         progress = 0
-        prog_bar = ProgressBar(bar_len=20)
+        prog_bar = ProgressBar(bar_len=self.prog_bar_len)
+        PROG_SEP = ' | '
+        PROG_END = '...'
+
+        for hash_algo in self.hash_algos:
+            hash_objs.append(self._get_hash_obj(hash_algo))
 
         str_siz = 1.0 if str_siz == 0 else float(str_siz)
-        if self.hash_algo == 'crc32':
-            hash_obj = HashCRC32()
-        else:
-            hash_obj = getattr(hashlib, self.hash_algo)()
-
+        first = True
+        strtext = PROG_SEP + self._to_str(string)
+        strtext_len = len(strtext)
+        if strtext_len > self.line_limit:
+            strtext = strtext[:(self.line_limit - len(PROG_END))] + PROG_END
+            strtext_len = self.line_limit
         while bol_read:
             sbuf = string[proc_pos:(proc_pos + hash_buf_siz)]
-            hash_obj.update(self._to_str(sbuf, 'strict'))
+            for hash_obj in hash_objs:
+                hash_obj.update(self._to_str(sbuf, 'strict'))
             proc_pos += len(sbuf)
             progress = proc_pos / str_siz
-            prog_bar.update(progress)
+            prog_bar_text = prog_bar.update(progress)
+            self._print(prog_bar_text, end='')
+            if first:
+                self._print(strtext, end='')
+                first = False
             if not sbuf:
                 bol_read = False
                 if progress < 1.0:
-                    prog_bar.update(1.0)
+                    prog_bar_text = prog_bar.update(1.0)
+                    self._print(prog_bar_text, end='')
+                self._print(('\r' + ' ' * (len(prog_bar_text) + \
+                            strtext_len) + '\r'), end='')
 
-        hash_code = hash_obj.hexdigest()
+        for hash_obj in hash_objs:
+            hash_code = hash_obj.hexdigest()
+            hash_codes.append(hash_code if not self.uppercase \
+                                        else hash_code.upper())
 
-        return hash_code if not self.uppercase else hash_code.upper()
-    # End of _calc_file_hash
+        return dict(zip(self.hash_algos, hash_codes))
+    # End of _calc_str_hash
 
     def _calc_file_hash(self, fpath):
         """Calculate the hash of the given file."""
@@ -749,46 +888,76 @@ class HashCalculator(object):
         file_siz = os.path.getsize(fpath)
         hash_buf_siz = self.hash_buf_siz if (file_siz >> 30) == 0 \
                                          else self.hash_buf_siz << 1
+        hash_objs = []
+        hash_codes = []
         proc_siz = 0
         progress = 0
-        prog_bar = ProgressBar(bar_len=20)
+        prog_bar = ProgressBar(bar_len=self.prog_bar_len)
+        PROG_SEP = ' | '
+        PROG_END = '...'
+
+        for hash_algo in self.hash_algos:
+            hash_objs.append(self._get_hash_obj(hash_algo))
 
         file_siz = 1.0 if file_siz == 0 else float(file_siz)
-        if self.hash_algo == 'crc32':
-            hash_obj = HashCRC32()
-        else:
-            hash_obj = getattr(hashlib, self.hash_algo)()
-
         with open(fpath, 'rb') as fp:
+            first = True
+            filetext = PROG_SEP + self._to_str(os.path.basename(fpath))
+            filetext_len = len(filetext)
+            if filetext_len > self.line_limit:
+                filetext = filetext[:(self.line_limit - len(PROG_END))] \
+                           + PROG_END
+                filetext_len = self.line_limit
             while bol_read:
                 fbuf = fp.read(hash_buf_siz)
-                hash_obj.update(fbuf)
+                for hash_obj in hash_objs:
+                    hash_obj.update(fbuf)
                 proc_siz += len(fbuf)
                 progress = proc_siz / file_siz
-                prog_bar.update(progress)
+                prog_bar_text = prog_bar.update(progress)
+                self._print(prog_bar_text, end='')
+                if first:
+                    self._print(filetext, end='')
+                    first = False
                 if not fbuf:
                     bol_read = False
                     if progress < 1.0:
-                        prog_bar.update(1.0)
+                        prog_bar_text = prog_bar.update(1.0)
+                        self._print(prog_bar_text, end='')
+                    self._print(('\r' + ' ' * (len(prog_bar_text) + \
+                                 filetext_len) + '\r'), end='')
 
-        hash_code = hash_obj.hexdigest()
+        for hash_obj in hash_objs:
+            hash_code = hash_obj.hexdigest()
+            hash_codes.append(hash_code if not self.uppercase \
+                                        else hash_code.upper())
 
-        return hash_code if not self.uppercase else hash_code.upper()
+        return dict(zip(self.hash_algos, hash_codes))
     # End of _calc_file_hash
 
-    def _calculate(self, fp=None, log_fp=None):
+    def _calculate(self, tmp_fps=None, log_fp=None):
         """Calculate the hash according to the given arguments."""
-        hash_rst = None
+
+        def _get_rst_fmt(hash_algo, index):
+            """Return the corresponding output format"""
+            rst_fmt = (
+                '*"%(item)s"\t%(hash)s%(nl)s',
+                ('%(item)s\t*%(hash)s%(nl)s' if hash_algo == 'crc32' \
+                                             else '%(hash)s *%(item)s%(nl)s'),
+                ('%(item)s\t*%(hash)s%(nl)s' if hash_algo == 'crc32' \
+                                             else '%(hash)s *%(item)s%(nl)s'),
+            )
+
+            return rst_fmt[index]
+        # End of _get_rst_fmt
+
+        fp_ptr = None
+        tmp_fps = {} if (tmp_fps is None \
+                         or isinstance(tmp_fps, dict) is False) else tmp_fps
+        hash_rst = ''
         obj_list = (self.src_strings, self.src_files, self.src_dirs)
         calc_meth = (self._calc_str_hash, self._calc_file_hash, \
                      self._calc_file_hash)
-        rst_fmt = (
-            '*"%(item)s"\t%(hash)s%(nl)s',
-            ('%(item)s\t*%(hash)s%(nl)s' if self.hash_algo == 'crc32' \
-                                         else '%(hash)s *%(item)s%(nl)s'),
-            ('%(item)s\t*%(hash)s%(nl)s' if self.hash_algo == 'crc32' \
-                                         else '%(hash)s *%(item)s%(nl)s'),
-        )
         header_fmt = '*%(nl)s* %(header)s%(nl)s*%(nl)s'
         newline = '\n'#self._newline
 
@@ -798,43 +967,42 @@ class HashCalculator(object):
                 src_header = (header_fmt % {'header': src_obj_dir, \
                                             'nl': newline}) \
                              if src_idx == 2 else None
+                if src_header is not None:
+                    fp_ptr = tmp_fps.get(self.hash_algos[0]) or log_fp
+                    self._print(self._to_str(src_header), fp_ptr, end='')
+                    src_header = fp_ptr = None
+
                 for src_item in src_obj[1]:
                     src_item_text = src_item if src_idx != 1 \
                                              else os.path.basename(src_item)
                     if src_obj_dir is not None:
                         src_item = self._get_file_path(src_obj_dir, src_item)
+
                     if src_idx != 0 and not (os.path.isfile(src_item) and \
                                              os.access(src_item, os.R_OK)):
                         self._print(self._hash_usage(210, filepath=\
                                     self._to_str(src_item)), log_fp)
-                        self.proc_fail += 1
+                        self.proc_nofnd += 1
                         continue
-                    hash_rst = rst_fmt[src_idx] \
-                               % {'item': src_item_text, \
-                                  'item_abs': src_item, \
-                                  'hash': calc_meth[src_idx](src_item), \
-                                  'nl': newline}
-                    src_header = self._to_str(src_header)
-                    hash_rst = self._to_str(hash_rst)
-                    self.proc_ok += 1
 
-                    if self._save_flag and fp:
-                        if src_header is not None:
-                            fp.write(src_header)
-                            src_header = None
-                        fp.write(hash_rst)
-                    else:
-                        if src_header is not None:
-                            #sys.stdout.write(src_header)
-                            self._print(src_header, log_fp, False)
-                            src_header = None
-                        #sys.stdout.write(hash_rst)
-                        #sys.stdout.flush()
-                        self._print(hash_rst, log_fp, False)
+                    hash_codes = calc_meth[src_idx](src_item)
+                    for hash_algo in self.hash_algos:
+                        fp_ptr = tmp_fps.get(hash_algo) or log_fp
+                        hash_rst = _get_rst_fmt(hash_algo, src_idx) \
+                                   % {'item': src_item_text, \
+                                      'item_abs': src_item, \
+                                      'hash': hash_codes[hash_algo], \
+                                      'nl': newline}
+                        self._print(self._to_str(hash_rst), fp_ptr, end='')
+
+                    self.proc_ok += 1
+                    hash_rst = ''
     # End of _calculate
 
     def _verify(self, log_fp=None):
         """Verify the hash according to the given arguments."""
+        VFY_RESULT = {1: 'Found', 2: 'OK', 3: 'FAIL'}
+
         with open(self.hash_path, 'r') as fp:
             for line in fp:
                 line = self._to_unicode(line)
@@ -842,32 +1010,42 @@ class HashCalculator(object):
                    and self._pat_empty_line.search(line) is None:
                     self.vfy_files.append(line)
 
-        result = None
+        result = 3
+        hash_algo = self.hash_algos[0]
         for item in self.vfy_files:
-            item_rst = self._pat_hash_item[self.hash_algo].search(item)
+            item_rst = self._pat_hash_item[hash_algo].search(item)
             if item_rst:
                 item = item_rst.groupdict()
                 filepath = self._get_file_path(self.hash_dir, item['file'])
-                filetext = self._to_str(item['file'])
+                filetext = item['file']
             else:
+                item_rst = self._pat_err_line.search(item)
+                item = item_rst.group(0) if item_rst else item
                 self._print(self._hash_usage(235, False, line=\
                             self._to_str(item)), log_fp)
-                self.proc_fail += 1
+                self.proc_nofnd += 1
                 continue
-            if os.access(filepath, os.R_OK):
-                if item['hash'].lower() == \
-                   self._calc_file_hash(filepath):
-                    result = 'OK'
+
+            if os.path.isfile(self.hash_path) and os.access(filepath, os.R_OK):
+                if self.exist_only:
+                    result = 1
+                    self.proc_found += 1
+                elif item['hash'].lower() == \
+                     self._calc_file_hash(filepath)[hash_algo]:
+                    result = 2
                     self.proc_ok += 1
                 else:
-                    result = 'FAIL'
+                    result = 3
                     self.proc_fail += 1
-                self._print(self._hash_usage(234, False, filename=filetext, \
-                            result=result), log_fp)
+                if result == 3 or self.verbose:
+                    self._print(self._hash_usage(234, False, filename=\
+                                self._to_str(filetext), result=\
+                                VFY_RESULT[result]), log_fp)
             else:
-                self._print(self._hash_usage(210, False, filepath=filetext), \
-                            log_fp)
-                self.proc_fail += 1
+                self._print(self._hash_usage(210, False, filepath=\
+                            self._to_str(filetext)), log_fp)
+                self.proc_nofnd += 1
+
         self.total_item += len(self.vfy_files)
     # End of _verify
 
@@ -885,14 +1063,16 @@ class HashCalculator(object):
                         hash_file = hash_file.groupdict()
                         hash_list_u.append(hash_file['file'])
                     else:
-                        self._print(self._hash_usage(235, \
-                                                     line=self._to_str(line)))
+                        self._print(self._hash_usage(235, False, \
+                                    line=self._to_str(line)), log_fp)
 
         for item in hash_list_u:
             self.hash_path = self._get_file_path(hash_list_dir, item)
-            assert (os.path.isfile(self.hash_path) and \
-                    os.access(self.hash_path, os.R_OK)), \
-                   self._hash_usage(210, filepath=self._to_str(self.hash_path))
+            if not (os.path.isfile(self.hash_path) and \
+                    os.access(self.hash_path, os.R_OK)):
+                self._print(self._hash_usage(210, False, filepath=\
+                            self._to_str(self.hash_path)), log_fp)
+                continue
             self.hash_dir = os.path.dirname(self.hash_path)
 
             self.vfy_files = []
@@ -901,8 +1081,8 @@ class HashCalculator(object):
 
     def __call__(self):
         try:
-            log_fp = open(self.hash_log, self._log_mode) if self._log_flag \
-                                                         else None
+            tmp_fps = {}
+            log_fp = SplTmpFile() if self._log_flag else None
 
             self._print(self._hash_usage(230, False), log_fp)
             stime = time.time()
@@ -911,8 +1091,9 @@ class HashCalculator(object):
 
             if self.action == 'c':
                 if self._save_flag:
-                    with open(self.hash_path, self._save_mode) as fp:
-                        self._calculate(fp, log_fp)
+                    for hash_algo in self.hash_algos:
+                        tmp_fps[hash_algo] = SplTmpFile()
+                    self._calculate(tmp_fps, log_fp)
                     self._print(self._hash_usage(233, filepath=\
                                 self._to_str(self.hash_path)), log_fp)
                 else:
@@ -923,12 +1104,25 @@ class HashCalculator(object):
                 if self.hash_list:
                     self._verify_hash_list(log_fp)
 
+            self.proc_found += self.proc_ok + self.proc_fail
             etime = time.time() - stime
             self._print(self._hash_usage(232, False, ok=self.proc_ok, \
-                        fail=self.proc_fail, total=self.total_item, \
+                        fail=self.proc_fail, found=self.proc_found, \
+                        nofnd=self.proc_nofnd, total=self.total_item, \
                         etime=etime), log_fp)
         finally:
-            if log_fp:
+            if self._save_flag:
+                with open(self.hash_path, self._save_mode) as fp:
+                    for hash_algo in self.hash_algos:
+                        tmp_fp = tmp_fps.get(hash_algo)
+                        if isinstance(tmp_fp, SplTmpFile):
+                            tmp_fp.seek(0, os.SEEK_SET)
+                            fp.write(tmp_fp.read())
+                            tmp_fp.close()
+            if isinstance(log_fp, SplTmpFile):
+                log_fp.seek(0, os.SEEK_SET)
+                with open(self.hash_log, self._log_mode) as fp:
+                    fp.write(log_fp.read())
                 log_fp.close()
     # End of __call__
 # End of HashCalculator
@@ -995,7 +1189,7 @@ def sig_int_handler(signum, frame):
 # End of sig_int_handler
 
 def main_parse_args(usage):
-    """Parsing arguments"""
+    """Parsing arguments for command line"""
     parser = argparse.ArgumentParser(\
              description='Calculate or verify the hash of file(s).')
     parser.add_argument('-s', '--string', dest='src_strings', \
@@ -1015,18 +1209,24 @@ def main_parse_args(usage):
     parser.add_argument('-a', '--algorithm', \
                         choices=['crc32', 'md5', 'sha1', 'sha224', \
                                  'sha256', 'sha384', 'sha512'], \
-                        dest='hash_algo', metavar='ALGORITHM', \
-                        help=usage(103, False), required=False)
+                        dest='hash_algos', metavar='ALGORITHM', \
+                        action='append', help=usage(103, False))
     parser.add_argument('-u', '--uppercase', dest='uppercase', \
                         action='store_true', help=usage(106, False))
-    parser.add_argument('-o', '--hash-file', dest='hash_file', \
-                        metavar='HASH_FILE', help=usage(102, False))
+    parser.add_argument('-o', '--hash-path', dest='hash_path', \
+                        metavar='HASH_PATH', help=usage(102, False))
     parser.add_argument('-l', '--hash-list', dest='hash_list', \
                         metavar='HASH_LIST', help=usage(116, False))
+    parser.add_argument('-x', '--exist-only', dest='exist_only', \
+                        action='store_true', help=usage(123, False))
+    parser.add_argument('-v', '--verbose', dest='verbose', \
+                        action='store_true', help=usage(124, False))
     parser.add_argument('-e', '--encoding', dest='encoding', \
                         metavar='ENCODING', help=usage(118, False))
     parser.add_argument('-L', '--log', dest='hash_log', \
                         metavar='HASH_LOG', help=usage(120, False))
+    parser.add_argument('-t', '--tee', dest='tee', action='store_true', \
+                        help=usage(122, False), required=False)
     parser.add_argument('-V', '--version', action='version', \
                         version=m_usage(101, False, prog='hashcalc'))
     parser.add_argument('action', choices=['c', 'calculate', 'v', 'verify'], \
@@ -1052,7 +1252,7 @@ if __name__ == '__main__':
 
         # Check arguments
         if m_args.action == 'c':
-            assert not (m_args.hash_algo is None), m_usage(111)
+            assert not (m_args.hash_algos is None), m_usage(111)
             assert (m_args.src_strings is not None or m_args.src_files \
                    is not None or m_args.src_dirs is not None or \
                    m_args.src_list is not None), m_usage(112)
@@ -1061,25 +1261,28 @@ if __name__ == '__main__':
             assert (m_args.src_strings is None and m_args.src_files is None \
                     and m_args.src_dirs is None and m_args.src_list is None), \
                    m_usage(109)
-            assert (m_args.hash_file is not None or \
+            assert (m_args.hash_path is not None or \
                    m_args.hash_list is not None), m_usage(110)
             if m_args.hash_list:
-                assert (m_args.hash_file is not None or \
-                       m_args.hash_algo is not None), m_usage(121)
+                assert (m_args.hash_path is not None or \
+                       m_args.hash_algos is not None), m_usage(121)
         m_hashcalc_param = {
             'src_strings': m_args.src_strings,
             'src_files': m_args.src_files,
             'src_dirs': m_args.src_dirs,
             'src_list': m_args.src_list,
             'recursive': m_args.recursive,
-            'hash_algo': m_args.hash_algo,
+            'hash_algos': m_args.hash_algos,
             'uppercase': m_args.uppercase,
-            'hash_path': m_args.hash_file,
+            'hash_path': m_args.hash_path,
             'hash_list': m_args.hash_list,
+            'exist_only': m_args.exist_only,
+            'verbose': m_args.verbose,
             'encoding': m_args.encoding,
             'hash_log': m_args.hash_log,
             'action': m_args.action,
             'hash_buf_siz': None,
+            'tee': m_args.tee,
         }
 
         # Create HashCalculator object and do the action
@@ -1088,6 +1291,8 @@ if __name__ == '__main__':
     except (StandardError, KeyboardInterrupt) as se:
         m_rst[0] = False
         #m_exc_type, m_exc_obj, m_tb_obj = sys.exc_info()
+        # NOTE(leonard): Uncomment the following two lines to show the full
+        #                traceback info.
         #from pprint import pprint
         #pprint(traceback.extract_tb(sys.exc_info()[-1]))
         m_tb_obj = traceback.extract_tb(sys.exc_info()[-1])[-1]
@@ -1102,6 +1307,7 @@ if __name__ == '__main__':
                                exctype=m_exc_type.__name__, \
                                excmsg=(se.message or str(se.args)))
 
+    # Main Error Handling
     if m_rst[0] is False:
         print (m_rst[1] if not isinstance(m_rst[1], unicode) \
                         else m_rst[1].encode(m_def_enc, 'ignore'))
