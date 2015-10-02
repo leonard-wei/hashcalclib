@@ -1,7 +1,7 @@
+#!/usr/bin/env python
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 # python version: 2.7.5 final, serial: 0
 # Author: Leonard Wei <gooxxgle.mail@gmail.com>
-# Date: Dec 12 2014
 
 """Hash calculation library
 
@@ -49,8 +49,6 @@ Note:
       remember to call `setRecursive(True)` before you call
       `addSrcDirs()`.
 """
-
-__version__ = '1.6.1'
 
 import codecs
 import fnmatch
@@ -622,6 +620,9 @@ class HashCalculator(object):
                 file filter.
     `regexFileFilterPattern`:
                 The regex expression pattern for the file filter.
+    `exclusiveDirs`:
+                The directories will be ignored when it processes the
+                `srcDirs` and `isRecursive` is True.
     `algorithms`:
                 List of hash algorithm(s). Support algorithms: crc32,
                 adler32, md5, sha1, sha224, sha256, sha384, sha512,
@@ -751,6 +752,7 @@ class HashCalculator(object):
     _action = None
     _isRecursive = False
     _fileFilterPattern = None
+    _exclusiveDirs = []
     _algorithms = []
     _isUppercase = False
     _extractionPattern = r"^.*(?:(?P<hlbk>\[)|(?P<hlpt>\())?"\
@@ -768,6 +770,7 @@ class HashCalculator(object):
     _fileBufSize = (2 << 20)
     _progressBar = None
     _progressBarWidth = 0
+    _showProgress = None
     _textWidth = 0
     _itemOK = 0
     _itemFail = 0
@@ -982,6 +985,18 @@ class HashCalculator(object):
             self._fileFilterRegex = None
     # end of setFileFilterPattern
 
+    def setExclusiveDirs(self, exclusiveDirs):
+        """Set the exclusive dirs."""
+        affirm(isinstance(exclusiveDirs, list), \
+               self._usage(11, arg='exclusiveDirs', type_='list'))
+        self._exclusiveDirs[:] = []
+        for dir_ in exclusiveDirs:
+            affirm(isinstance(dir_, basestring), \
+                   self._usage(12, arg='exclusiveDirs', \
+                               value=self._str(exclusiveDirs)))
+            self._exclusiveDirs.append(self._unicode(dir_))
+    # end of setExclusiveDirs
+
     def setAction(self, action):
         """Set the `_action`"""
         affirm(action in ('c', 'v', 'e'), \
@@ -999,6 +1014,11 @@ class HashCalculator(object):
                    self._usage(206, algorithm=algorithm, module='sha3'))
     # end of _checkAlgorithmModule
 
+    def getAlgorithms(self):
+        """Return the current algorithms."""
+        return list(self._algorithms)
+    # end of getAlgorithms
+
     def clearAlgorithms(self):
         """Delete all hash algorithms."""
         self._algorithms[:] = []
@@ -1012,6 +1032,13 @@ class HashCalculator(object):
             self._checkAlgorithmModule(algorithm)
             self._algorithms.append(algorithm)
     # end of addAlgorithm
+
+    def delAlgorithm(self, algorithm):
+        affirm(algorithm in self._validAlgorithms, \
+               self._usage(12, arg='algorithm', value=self._str(algorithm)))
+        if algorithm in self._algorithms:
+            self._algorithms.remove(algorithm)
+    # end of delAlgorithm
 
     def setAlgorithms(self, algorithms=None):
         """Set the hash algorithms."""
@@ -1131,7 +1158,8 @@ class HashCalculator(object):
             itemAbsPath = getAbsPath(dir_, item)
             # Here will not follow the symbolic link of dir if recursive
             if os.path.isdir(itemAbsPath):
-                if self._isRecursive and not os.path.islink(itemAbsPath):
+                if self._isRecursive and (not os.path.islink(itemAbsPath)) \
+                   and item not in self._exclusiveDirs:
                     subdirFiles.extend(self._getFileList(itemAbsPath, root))
             elif os.path.isfile(itemAbsPath):
                 if not self._isFileMatched(item):
@@ -1269,6 +1297,29 @@ class HashCalculator(object):
         self._fileBufSize = fileBufSize
     # end of setFileBufSize
 
+    def setupProgressBar(self, showProgressCallback=None):
+        """
+        Determine width of the progress bar and the width of the output
+        text for console window. If you want to use your own progress bar,
+        you must provide a callback function as the following prototype:
+            def callback(progress, text)
+            `progress` is the progress of a file being processed and
+            `text` is its basename.
+        """
+        self._progressBarWidth = 17
+        self._progressBar = ProgressBar(self._progressBarWidth)
+        if callable(showProgressCallback):
+            self._showProgress = showProgressCallback
+        else:
+            self._showProgress = self._printProgress
+        try:
+            windowWidth = int(os.environ['COLUMNS'])
+        except (KeyError, ValueError):
+            windowWidth = 80
+        finally:
+            self._textWidth = windowWidth - self._progressBarWidth - 1
+    # end of setupProgressBar
+
     def clearSrcItems(self):
         """Clear all items to be calculated/extraction/verification"""
         self._srcStrings[:] = []
@@ -1303,10 +1354,10 @@ class HashCalculator(object):
     def __init__(\
         self, action='c', srcStrings=None, srcFiles=None, srcDirs=None, \
         srcItemsFile=None, isRecursive=None, unixFileFilterPattern=None, \
-        regexFileFilterPattern=None, algorithms=None, isUppercase=None, \
-        extractionPattern=None, isNewOutputMode=None, hasDirHeader=None, \
-        hashFile=None, hashPathsFile=None, isExistenceOnly=None, \
-        encoding=None, logFile=None, isVerbose=None, \
+        regexFileFilterPattern=None, exclusiveDirs=None, algorithms=None, \
+        isUppercase=None, extractionPattern=None, isNewOutputMode=None, \
+        hasDirHeader=None, hashFile=None, hashPathsFile=None, \
+        isExistenceOnly=None, encoding=None, logFile=None, isVerbose=None, \
         isTee=None, isSilent=None, fileBufSize=None):
         """Initialize and parse all arguments."""
         # Parsing `isSilent`
@@ -1333,6 +1384,9 @@ class HashCalculator(object):
         # Parsing `unixFileFilterPattern` and `regexFileFilterPattern`
         self.setFileFilterPattern(unixFileFilterPattern, \
                                   regexFileFilterPattern)
+        # Parsing `exclusiveDirs`
+        if exclusiveDirs is not None:
+            self.setExclusiveDirs(exclusiveDirs)
         # Parsing `action`
         self.setAction(action)
         # Parsing `algorithms`
@@ -1362,16 +1416,7 @@ class HashCalculator(object):
         if fileBufSize is not None:
             self.setFileBufSize(fileBufSize)
 
-        # Determine the width of the progress bar and the width of
-        # the output text for console window
-        self._progressBarWidth = 17
-        self._progressBar = ProgressBar(self._progressBarWidth)
-        try:
-            windowWidth = int(os.environ['COLUMNS'])
-        except (KeyError, ValueError):
-            windowWidth = 80
-        finally:
-            self._textWidth = windowWidth - self._progressBarWidth - 1
+        self.setupProgressBar()
 
         # The following comment section is for debug purpose.
         """
@@ -1381,6 +1426,7 @@ class HashCalculator(object):
             srcItemsFile=srcItemsFile, _isRecursive=self._isRecursive, \
             unixFileFilterPattern=unixFileFilterPattern, \
             regexFileFilterPattern=regexFileFilterPattern, \
+            exclusiveDirs=self._exclusiveDirs, \
             _algorithms=self._algorithms, _isUppercase=self._isUppercase, \
             _extractionPattern=self._extractionPattern, \
             _isNewOutputMode=self._isNewOutputMode, \
@@ -1507,7 +1553,7 @@ class HashCalculator(object):
         try:
             with openFunc(srcItem) as file_:
                 for progress, hashesTmp in self._calculateHash(file_, size):
-                    self._printProgress(progress, text)
+                    self._showProgress(progress, text)
                     if hashesTmp:
                         hashes.update(hashesTmp)
         except IOError as ioe:
@@ -1762,7 +1808,18 @@ class FileInfoUsage(UsageHandler):
 
 
 class FileInfo(object):
-    """Get and check the file information (size, attributes)."""
+    """Get and check the file information (size, attributes).
+    `isRecursive`:
+                If `getFileInfo()` is called, it will process all files
+                under the specified `dir_` recursively.
+    `isSilent`: No output to stdout.
+    `exclusiveDirs`:
+                The directories will be ignored when `getFileInfo()` is called.
+    `isVerbose`:
+                Show all output when action is "v", default only show
+                the "FAIL" and "Not Found".
+    `encoding`: Try to use the specified encoding to decode first.
+    """
 
     _TOTAL = Enum(('DIRS', 'FILES', 'SIZES', 'OK', 'NOTSIZE', \
                    'FOUND', 'NOTFOUND', 'COUNT'))
@@ -1774,6 +1831,7 @@ class FileInfo(object):
     _isRecursive = False
     _exclusiveDirs = []
     _isVerbose = False
+    _encoding = None
     _tmpFile = None
     _getAttributes = None
     # For windows file attributes
@@ -1794,7 +1852,7 @@ class FileInfo(object):
     # end of _str
 
     def _unicode(self, obj):
-        return unicode_(obj, self._defaultEncoding)
+        return unicode_(obj, self._encoding or self._defaultEncoding)
     # end of _unicode
 
     def _print(self, obj, file_=None, end='\n'):
@@ -1847,9 +1905,23 @@ class FileInfo(object):
         self._isVerbose = isVerbose
     # end of setVerbose
 
+    def setEncoding(self, encoding):
+        """Set the `_encoding`"""
+        affirm(isinstance(encoding, basestring), \
+               self._usage(11, arg='encoding', type_='basestring'))
+
+        try:
+            codecs.lookup(encoding)
+        except LookupError as le:
+            raise Error(joinExceptionArgs(le))
+        else:
+            self._encoding = encoding
+    # end of setEncoding
+
     def __init__(self, isRecursive=None, isSilent=None, exclusiveDirs=None, \
-                 isVerbose=None):
+                 isVerbose=None, encoding=None):
         self.setSilent(isSilent or False)
+        self.setEncoding(encoding or self._defaultEncoding)
         self.setRecursive(isRecursive or False)
         self.setVerbose(isVerbose or False)
         if exclusiveDirs is not None:

@@ -1,11 +1,9 @@
+#!/usr/bin/env python
 # vim: tabstop=4 shiftwidth=4 softtabstop=4
 # python version: 2.7.5 final, serial: 0
 # Author: Leonard Wei <gooxxgle.mail@gmail.com>
-# Date: Dec 12 2014
 
 """Common utilities"""
-
-__version__ = '1.6.0'
 
 import codecs
 import inspect
@@ -158,16 +156,29 @@ def getAbsPath(dir_, path):
 # end of getAbsPath
 
 
-class Enum(object):
+class Enum(dict):
     """A class for the enumeration.
     `names`:    A tuple or list contains the symbolic names(strings).
-    `start`:    The start value of the enumeration.
+    `values`:   The start value of the enumeration or a tuple(list) of
+                all enumeration values corresponding to the given names.
     """
 
-    def __init__(self, names, start=0):
-        for value, name in tuple(enumerate(names, start)):
+    def __init__(self, names=tuple(), values=0):
+        if isinstance(values, int):
+            items = tuple(enumerate(names, values))
+        elif isinstance(values, (tuple, list)):
+            items = zip(values, names)
+        else:
+            raise ValueError('`values` must be an integer, a tuple or a list.')
+        for value, name in items:
             self.__dict__[name] = value
+        super(Enum, self).__init__(self.__dict__)
     # end of __init__
+
+    def __setitem__(self, name, value):
+        self.__dict__[name] = value
+        super(Enum, self).__setitem__(name, value)
+    # end of __setitem__
 # end of Enum
 
 
